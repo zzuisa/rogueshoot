@@ -293,9 +293,11 @@ export class BattleScene extends Phaser.Scene {
     if (count === 1) {
       const vx = Math.cos(baseAng) * speed
       const vy = Math.sin(baseAng) * speed
-      this.bullets.push(
-        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range }),
-      )
+      const bullet = new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range })
+      this.bullets.push(bullet)
+      
+      // 立即分裂：向固定方向发射指定个数的次级子弹
+      this.spawnBulletSplitImmediate(this.player.x, this.player.y - 8, baseAng, this.player.damage)
       return
     }
 
@@ -304,9 +306,11 @@ export class BattleScene extends Phaser.Scene {
       const ang = baseAng + (t - 0.5) * spread
       const vx = Math.cos(ang) * speed
       const vy = Math.sin(ang) * speed
-      this.bullets.push(
-        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range }),
-      )
+      const bullet = new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range })
+      this.bullets.push(bullet)
+      
+      // 立即分裂：向固定方向发射指定个数的次级子弹
+      this.spawnBulletSplitImmediate(this.player.x, this.player.y - 8, ang, this.player.damage)
     }
   }
 
@@ -428,10 +432,6 @@ export class BattleScene extends Phaser.Scene {
         const dmg = b.damage * hit.getDamageTakenMult(this.timeAliveSec)
         this.recordDamage('主武器', dmg)
         hit.takeDamage(dmg)
-        
-        // 子弹分裂逻辑
-        this.spawnBulletSplit(b, hit.x, hit.y)
-        
         b.destroy()
         continue
       }
@@ -3001,65 +3001,69 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 生成子弹分裂（当子弹命中敌人时）
+   * 立即分裂：向固定方向发射指定个数的次级子弹
+   * @param startX 起始X坐标
+   * @param startY 起始Y坐标
+   * @param baseAngle 基础角度（主子弹方向）
+   * @param baseDamage 基础伤害值
    */
-  private spawnBulletSplit(bullet: Bullet, hitX: number, hitY: number) {
+  private spawnBulletSplitImmediate(startX: number, startY: number, baseAngle: number, baseDamage: number) {
     const split2Count = this.skills.split2Count
     const split4Count = this.skills.split4Count
     
-    // 分裂成2发（1->2）
+    // 分裂成2发（1->2）：向固定方向发射2发
     if (split2Count > 0) {
-      for (let i = 0; i < split2Count; i++) {
-        // 计算分裂角度：垂直于原子弹方向，左右各一发
-        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
-        const splitAngle = baseAngle + (i === 0 ? -Math.PI / 2 : Math.PI / 2) + (Math.random() - 0.5) * 0.3
-        const speed = 100  // 次级子弹速度稍慢
-        const vx = Math.cos(splitAngle) * speed
-        const vy = Math.sin(splitAngle) * speed
-        
-        // 次级子弹伤害继承主子弹的60%
-        const secondaryDamage = bullet.damage * 0.6
-        
-        this.secondaryBullets.push(
-          new SecondaryBullet(this, {
-            x: hitX,
-            y: hitY,
-            vx,
-            vy,
-            damage: secondaryDamage,
-            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
-            parent: bullet,
-            splitLevel: 0,
-          })
-        )
+      for (let level = 0; level < split2Count; level++) {
+        // 每级发射2发，垂直于主子弹方向，左右各一发
+        for (let i = 0; i < 2; i++) {
+          const splitAngle = baseAngle + (i === 0 ? -Math.PI / 2 : Math.PI / 2)
+          const speed = 100  // 次级子弹速度稍慢
+          const vx = Math.cos(splitAngle) * speed
+          const vy = Math.sin(splitAngle) * speed
+          
+          // 次级子弹伤害继承主子弹的60%
+          const secondaryDamage = baseDamage * 0.6
+          
+          this.secondaryBullets.push(
+            new SecondaryBullet(this, {
+              x: startX,
+              y: startY,
+              vx,
+              vy,
+              damage: secondaryDamage,
+              maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
+              splitLevel: 0,
+            })
+          )
+        }
       }
     }
     
-    // 分裂成4发（1->4）
+    // 分裂成4发（1->4）：向固定方向发射4发
     if (split4Count > 0) {
-      for (let i = 0; i < split4Count; i++) {
-        // 计算分裂角度：均匀分布在360度
-        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
-        const splitAngle = baseAngle + (Math.PI * 2 / 4) * i + (Math.random() - 0.5) * 0.2
-        const speed = 100  // 次级子弹速度稍慢
-        const vx = Math.cos(splitAngle) * speed
-        const vy = Math.sin(splitAngle) * speed
-        
-        // 次级子弹伤害继承主子弹的50%（4发时伤害更低）
-        const secondaryDamage = bullet.damage * 0.5
-        
-        this.secondaryBullets.push(
-          new SecondaryBullet(this, {
-            x: hitX,
-            y: hitY,
-            vx,
-            vy,
-            damage: secondaryDamage,
-            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
-            parent: bullet,
-            splitLevel: 0,
-          })
-        )
+      for (let level = 0; level < split4Count; level++) {
+        // 每级发射4发，均匀分布在360度
+        for (let i = 0; i < 4; i++) {
+          const splitAngle = baseAngle + (Math.PI * 2 / 4) * i
+          const speed = 100  // 次级子弹速度稍慢
+          const vx = Math.cos(splitAngle) * speed
+          const vy = Math.sin(splitAngle) * speed
+          
+          // 次级子弹伤害继承主子弹的50%（4发时伤害更低）
+          const secondaryDamage = baseDamage * 0.5
+          
+          this.secondaryBullets.push(
+            new SecondaryBullet(this, {
+              x: startX,
+              y: startY,
+              vx,
+              vy,
+              damage: secondaryDamage,
+              maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
+              splitLevel: 0,
+            })
+          )
+        }
       }
     }
   }

@@ -113,6 +113,10 @@ export class BattleScene extends Phaser.Scene {
     this.skillRangeGfx = this.add.graphics()
     this.skillRangeGfx.setVisible(false)
     
+    // 已选技能框图形（canvas内渲染，深度999，低于技能选择界面1000）
+    this.skillsBarGfx = this.add.graphics()
+    this.skillsBarGfx.setDepth(999) // 确保低于技能选择界面（1000）
+    
     // 主武器信息图形（canvas内渲染，深度999，低于技能选择界面1000）
     this.weaponInfoGfx = this.add.graphics()
     this.weaponInfoGfx.setDepth(999) // 确保低于技能选择界面（1000）

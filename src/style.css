@@ -179,7 +179,7 @@ canvas {
   #skills-bar {
     right: 4px;
     top: 20px; /* 移动端怪物图鉴更小，调整位置 */
-    width: 80px;
+    width: 200px; /* 与怪物图鉴宽度一致 */
     padding: 4px;
     font-size: 10px;
     max-height: calc(100vh - 60px); /* 避免超出屏幕 */
@@ -190,7 +190,7 @@ canvas {
   #skills-bar {
     right: 2px;
     top: 25px;
-    width: 80px;
+    width: 60px;
     padding: 3px;
     font-size: 9px;
     max-height: calc(100vh - 50px);
@@ -416,7 +416,7 @@ canvas {
   }
 
   #skills-bar {
-    width: 120px;
+    width: 160px; /* 与怪物图鉴宽度一致 */
     max-height: 150px;
     font-size: 9px;
   }
@@ -440,7 +440,7 @@ canvas {
   #skills-bar {
     right: 2px;
     top: 50px; /* 横屏时也在怪物图鉴下方 */
-    width: 120px;
+    width: 180px; /* 与怪物图鉴宽度一致 */
     max-height: calc(100vh - 24px);
   }
 

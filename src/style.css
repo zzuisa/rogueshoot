@@ -78,8 +78,8 @@ canvas {
 #player-weapon-info {
   position: fixed;
   left: 12px;
-  top: 12px;
-  z-index: 10;
+  top: 32px;
+  z-index: 1;
   pointer-events: none; /* 不阻挡交互 */
   font-size: 12px;
   padding: 8px 10px;
@@ -536,7 +536,7 @@ canvas {
 #damage-stats {
   position: fixed;
   left: 12px;
-  bottom: 60px; /* 向上移动，避免与版本信息重叠 */
+  bottom: 100px; /* 向上移动，避免与版本信息重叠 */
   z-index: 10;
   width: 160px;
   background: rgba(12, 15, 20, 0.6);

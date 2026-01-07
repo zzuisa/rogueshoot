@@ -33,6 +33,10 @@ export class BattleScene extends Phaser.Scene {
 
   private readonly defenseLineY = 520
 
+  // 主武器信息（canvas内渲染，深度999，低于技能选择界面1000）
+  private weaponInfoGfx!: Phaser.GameObjects.Graphics
+  private weaponInfoTexts: Phaser.GameObjects.Text[] = []
+
   private spawnTimer = 0
   private spawnIntervalSec = 0.9
   private timeAliveSec = 0
@@ -1316,11 +1320,7 @@ export class BattleScene extends Phaser.Scene {
   private showSkillChoice(choices: SkillChoice[]) {
     if (this.skillUi) this.skillUi.destroy(true)
 
-    // 隐藏主武器信息面板，避免遮挡技能选择界面
-    const playerStatsEl = document.getElementById('player-stats')
-    if (playerStatsEl) {
-      playerStatsEl.style.display = 'none'
-    }
+    // 主武器信息现在在canvas中渲染，深度999，低于技能选择界面1000，所以不需要隐藏
 
     const overlay = this.add.container(0, 0)
     overlay.setDepth(1000) // 确保技能选择界面在最上层

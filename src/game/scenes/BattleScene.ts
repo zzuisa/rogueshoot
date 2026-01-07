@@ -2731,10 +2731,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 检查技能范围内是否有敌人
+   * 检查技能触发范围内是否有敌人
+   * 注意：这是"触发范围"（用于判断是否可以释放技能），不是"效果范围"（实际作用范围）
+   * 例如：装甲车的触发范围是弧形范围，但实际效果是装甲车会一直移动到屏幕尽头
    */
   private hasEnemyInSkillRange(skillId: MainSkillId, level: number): boolean {
-    const range = this.getSkillActualRange(skillId, level)
+    const range = this.getSkillTriggerRange(skillId, level)
     if (!range) return true // 如果没有定义范围，允许触发（向后兼容）
     
     const cx = this.player.x
@@ -2793,10 +2795,19 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 获取技能的实际释放范围（考虑等级和范围升级）
+   * 获取技能的触发范围（用于判断是否可以释放技能）
+   * 
+   * 注意：这是"触发范围"，不是"效果范围"
+   * - 触发范围：用于判断范围内是否有敌人，如果有才允许释放技能
+   * - 效果范围：技能的实际作用范围，可能比触发范围大得多
+   *   例如：
+   *   - 装甲车：触发范围是弧形范围，但实际效果是装甲车会一直移动到屏幕尽头
+   *   - 温压弹：触发范围是弧形范围，但实际效果是飞行到目标位置后爆炸
+   *   - 干冰弹：触发范围是弧形范围，但实际效果是直线穿透到屏幕尽头
+   * 
    * 所有主技能默认使用弧形范围，半径为玩家触发范围 * 0.9
    */
-  private getSkillActualRange(skillId: MainSkillId, level: number): import('../skills/skillDefs').SkillRange | null {
+  private getSkillTriggerRange(skillId: MainSkillId, level: number): import('../skills/skillDefs').SkillRange | null {
     const def = SKILL_DEFS[skillId]
     if (!def) return null
     
@@ -2807,12 +2818,22 @@ export class BattleScene extends Phaser.Scene {
     // 所有主技能都使用弧形范围（80%圆弧，保留20%盲区朝下，与玩家射程一致）
     return { type: 'arcRange', radius: baseRadius, anglePercent: 0.8 }
   }
+  
+  /**
+   * 获取技能的实际释放范围（已废弃，重命名为 getSkillTriggerRange）
+   * @deprecated 使用 getSkillTriggerRange 代替
+   */
+  private getSkillActualRange(skillId: MainSkillId, level: number): import('../skills/skillDefs').SkillRange | null {
+    return this.getSkillTriggerRange(skillId, level)
+  }
 
   /**
-   * 显示技能释放范围
+   * 显示技能触发范围（虚线弧形范围）
+   * 注意：这只是触发范围，用于判断是否可以释放技能
+   * 实际效果范围可能更大（如装甲车会移动到屏幕尽头）
    */
   showSkillRange(skillId: MainSkillId, level: number) {
-    const range = this.getSkillActualRange(skillId, level)
+    const range = this.getSkillTriggerRange(skillId, level)
     if (!range) return
     
     this.skillRangeGfx.setVisible(true)
@@ -2828,7 +2849,9 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 绘制技能释放范围（虚线）
+   * 绘制技能触发范围（虚线弧形范围）
+   * 注意：这只是触发范围，用于判断是否可以释放技能
+   * 实际效果范围可能更大（如装甲车会移动到屏幕尽头）
    */
   private drawSkillRange(range: import('../skills/skillDefs').SkillRange, skillId: MainSkillId) {
     this.skillRangeGfx.clear()

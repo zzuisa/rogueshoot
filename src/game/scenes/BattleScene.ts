@@ -731,15 +731,21 @@ export class BattleScene extends Phaser.Scene {
       const y = currentTarget.y
       
       // 如果有多个，稍微偏移位置
+      let targetX = x
+      let targetY = y
       if (count > 1 && i > 0) {
         const offsetX = (Math.random() - 0.5) * 40
         const offsetY = (Math.random() - 0.5) * 40
-        const newX = Phaser.Math.Clamp(x + offsetX, 30, this.scale.width - 30)
-        const newY = Phaser.Math.Clamp(y + offsetY, 50, this.defenseLineY - 50)
-        
+        targetX = Phaser.Math.Clamp(x + offsetX, 30, this.scale.width - 30)
+        targetY = Phaser.Math.Clamp(y + offsetY, 50, this.defenseLineY - 50)
+      }
+      
+      // 延迟释放，避免重叠
+      const delay = i * 300
+      this.time.delayedCall(delay, () => {
         // 伤害计算
         for (const z of this.zombies) {
-          const d = Math.hypot(z.x - newX, z.y - newY)
+          const d = Math.hypot(z.x - targetX, z.y - targetY)
           if (d <= r) {
             const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
             this.recordDamage('温压弹', actualDmg)
@@ -747,30 +753,14 @@ export class BattleScene extends Phaser.Scene {
           }
         }
         
-        // 延迟释放特效（飞行时间放慢50%，即延迟时间增加100%）
-        this.time.delayedCall(i * 300, () => {
-          this.spawnThermobaricExplosion(newX, newY, r)
-        })
-      } else {
-        // 第一次立即释放
-        // 伤害计算
-        for (const z of this.zombies) {
-          const d = Math.hypot(z.x - x, z.y - y)
-          if (d <= r) {
-            const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
-            this.recordDamage('温压弹', actualDmg)
-            z.takeDamage(actualDmg)
-          }
-        }
-        
-        // 添加飞行轨迹动画
+        // 添加飞行轨迹动画（每个弹道都有）
         const flightTime = 0.6  // 飞行时间（秒）
-        this.spawnProjectileTrail(this.player.x, this.player.y, x, y, flightTime, 0xff6b00, 0xff4500)
+        this.spawnProjectileTrail(this.player.x, this.player.y, targetX, targetY, flightTime, 0xff6b00, 0xff4500)
         // 延迟爆炸
         this.time.delayedCall(flightTime * 1000, () => {
-          this.spawnThermobaricExplosion(x, y, r)
+          this.spawnThermobaricExplosion(targetX, targetY, r)
         })
-      }
+      })
     }
   }
 
@@ -947,8 +937,12 @@ export class BattleScene extends Phaser.Scene {
       }
 
       // 延迟释放特效
-      const delay = i * 100
+      const delay = i * 200
       this.time.delayedCall(delay, () => {
+        // 添加飞行轨迹动画（每个弹道都有）
+        const flightTime = 0.3  // 飞行时间（秒）
+        this.spawnProjectileTrail(this.player.x, this.player.y, targetX, targetY, flightTime, 0x87ceeb, 0x4682b4)
+        
         // 冰弹轨迹特效：从玩家位置向目标方向发射的冰蓝色光束
         const g = this.add.graphics()
         
@@ -1179,6 +1173,10 @@ export class BattleScene extends Phaser.Scene {
         r,
         dmg,
       })
+      
+      // 添加飞行轨迹动画（每个炸弹都有）
+      const flightTime = delay + 0.3  // 飞行时间 = 延迟时间 + 0.3秒
+      this.spawnProjectileTrail(this.player.x, this.player.y, bombX, bombY, flightTime, 0xff6b6b, 0xff4500)
       
       // 轰炸标记：显示即将轰炸的位置
       this.spawnBombMarker(bombX, bombY, r, delay)

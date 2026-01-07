@@ -2580,9 +2580,182 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 更新技能状态栏（显示已选择的技能）
-   * 区分主技能和被动（分支）技能
-   * 分支技能只显示在对应主技能下方，作为强化词条
+   * 在canvas内绘制已选技能框（右上角，深度999，低于技能选择界面1000）
+   */
+  private drawSkillsBar() {
+    this.skillsBarGfx.clear()
+    
+    // 清理旧文本和交互区域
+    this.skillsBarTexts.forEach(t => t.destroy())
+    this.skillsBarTexts = []
+    this.skillsBarZones.forEach(z => z.destroy())
+    this.skillsBarZones = []
+    
+    // 获取所有已解锁的主技能
+    const unlockedSkills = this.skills.getUnlockedMainSkills()
+    
+    // 先收集所有分支技能，按主技能分组
+    const upgradeSkillsByMain: Map<MainSkillId, Array<{ def: SkillDef; level: number }>> = new Map()
+    
+    for (const skillId in SKILL_DEFS) {
+      const def = SKILL_DEFS[skillId as SkillId]
+      if (def.type !== 'upgrade' || !def.requires) continue
+      
+      const level = this.skills.getLevel(skillId as SkillId)
+      if (level <= 0) continue
+
+      if (!upgradeSkillsByMain.has(def.requires)) {
+        upgradeSkillsByMain.set(def.requires, [])
+      }
+      upgradeSkillsByMain.get(def.requires)!.push({ def, level })
+    }
+    
+    // 移动端检测
+    const isMobile = this.scale.width <= 768
+    const isSmallMobile = this.scale.width <= 480
+    
+    // 根据屏幕尺寸调整参数
+    const right = isMobile ? 4 : 12
+    const top = isMobile ? 50 : 55 // 与CSS中的top值对应
+    const width = isSmallMobile ? 120 : (isMobile ? 140 : 200)
+    const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
+    const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
+    const padding = isMobile ? 4 : 8
+    
+    let currentY = top + padding
+    const x = this.scale.width - right - width
+    
+    // 过滤掉 bullet_spread（主武器增强，不在技能栏显示）
+    const skillsToShow = unlockedSkills.filter(id => id !== 'bullet_spread')
+      .map(id => {
+        const def = SKILL_DEFS[id]
+        if (!def) return null
+        const level = this.skills.getLevel(id)
+        if (level <= 0) return null
+        return { id, def, level }
+      })
+      .filter((item): item is { id: MainSkillId; def: SkillDef; level: number } => item !== null)
+    
+    if (skillsToShow.length === 0) return // 没有技能时不显示
+    
+    // 计算总高度
+    let totalHeight = padding * 2
+    for (const { id, def, level } of skillsToShow) {
+      totalHeight += lineHeight + 2 // 主技能名称
+      totalHeight += lineHeight // 等级
+      const stats = this.getSkillStats(id, level)
+      if (stats) {
+        totalHeight += lineHeight // 属性
+      }
+      const upgrades = upgradeSkillsByMain.get(id)
+      if (upgrades && upgrades.length > 0) {
+        totalHeight += upgrades.length * lineHeight // 分支技能
+      }
+      totalHeight += 4 // 间距
+    }
+    
+    // 绘制背景
+    this.skillsBarGfx.fillStyle(0x0c0f14, 0.6)
+    this.skillsBarGfx.fillRoundedRect(x, top, width, totalHeight, 4)
+    this.skillsBarGfx.lineStyle(1, 0x6bffea, 0.5)
+    this.skillsBarGfx.strokeRoundedRect(x, top, width, totalHeight, 4)
+    
+    // 绘制标题
+    const title = this.add.text(x + padding, currentY, '已选技能', {
+      fontSize: `${fontSize + 1}px`,
+      color: '#6bffea',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0).setDepth(999)
+    this.skillsBarTexts.push(title)
+    currentY += lineHeight + 4
+    
+    // 绘制每个技能
+    for (const { id, def, level } of skillsToShow) {
+      const skillY = currentY
+      let skillHeight = 0
+      
+      // 主技能名称
+      const nameText = `${def.name} [主动]`
+      const nameObj = this.add.text(x + padding, currentY, nameText, {
+        fontSize: `${fontSize}px`,
+        color: '#a9c1ff',
+        fontFamily: 'monospace',
+      }).setOrigin(0, 0).setDepth(999)
+      this.skillsBarTexts.push(nameObj)
+      currentY += lineHeight
+      skillHeight += lineHeight
+      
+      // 等级
+      const levelText = `等级: ${level}/${def.maxLevel}`
+      const levelObj = this.add.text(x + padding, currentY, levelText, {
+        fontSize: `${fontSize - 1}px`,
+        color: '#e8f0ff',
+        fontFamily: 'monospace',
+      }).setOrigin(0, 0).setDepth(999)
+      this.skillsBarTexts.push(levelObj)
+      currentY += lineHeight
+      skillHeight += lineHeight
+      
+      // 属性
+      const stats = this.getSkillStats(id, level)
+      if (stats) {
+        const statsObj = this.add.text(x + padding, currentY, stats, {
+          fontSize: `${fontSize - 1}px`,
+          color: 'rgba(232, 240, 255, 0.85)',
+          fontFamily: 'monospace',
+        }).setOrigin(0, 0).setDepth(999)
+        this.skillsBarTexts.push(statsObj)
+        currentY += lineHeight
+        skillHeight += lineHeight
+      }
+      
+      // 分支技能（强化词条）
+      const upgrades = upgradeSkillsByMain.get(id)
+      if (upgrades && upgrades.length > 0) {
+        for (const { def: upgradeDef, level: upgradeLevel } of upgrades) {
+          const upgradeText = `  └ ${upgradeDef.name} [强化] Lv.${upgradeLevel}/${upgradeDef.maxLevel}`
+          const upgradeObj = this.add.text(x + padding, currentY, upgradeText, {
+            fontSize: `${fontSize - 1}px`,
+            color: 'rgba(232, 240, 255, 0.85)',
+            fontFamily: 'monospace',
+          }).setOrigin(0, 0).setDepth(999)
+          this.skillsBarTexts.push(upgradeObj)
+          currentY += lineHeight
+          skillHeight += lineHeight
+        }
+      }
+      
+      // 添加交互区域（用于按住显示技能范围）
+      if (def.range) {
+        const zone = this.add.zone(x, skillY, width, skillHeight)
+        zone.setDepth(999)
+        zone.setInteractive({ useHandCursor: true })
+        
+        // 鼠标按下/触摸按下：显示范围
+        zone.on('pointerdown', () => {
+          this.showSkillRange(id, level)
+        })
+        
+        // 鼠标松开/触摸松开：隐藏范围
+        zone.on('pointerup', () => {
+          this.hideSkillRange()
+        })
+        
+        // 鼠标移出：隐藏范围
+        zone.on('pointerout', () => {
+          this.hideSkillRange()
+        })
+        
+        this.skillsBarZones.push(zone)
+      }
+      
+      currentY += 4 // 技能间距
+    }
+  }
+
+  /**
+   * 更新技能状态栏（DOM方式，保留用于兼容，但不再使用）
    */
   private updateSkillsBar() {
     const skillsBarList = document.getElementById('skills-bar-list')

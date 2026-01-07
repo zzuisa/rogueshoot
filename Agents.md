@@ -271,11 +271,48 @@ rogueshoot/
 
 ---
 
-## 部署流程
+## 开发与部署流程
 
-### ⚠️ 重要：每次修改代码后必须执行部署
+### 🚀 开发模式（实时调试，无需构建）
 
-### 部署命令
+**当前配置**：Nginx 已配置为代理到开发服务器（`proxy_pass http://localhost:5173`），可以直接通过域名实时调试。
+
+#### 启动开发服务器
+
+```bash
+# 启动开发服务器（后台运行）
+npm run dev
+
+# 或者前台运行（可以看到日志）
+npm run dev
+```
+
+**⚠️ 重要**：
+- 开发服务器必须保持运行，否则网站无法访问
+- 修改代码后保存即可，浏览器会自动热更新（HMR）
+- 无需构建，直接通过 `https://ai.roguelife.de` 访问即可看到效果
+- 如果开发服务器停止，需要重新启动
+
+#### 检查开发服务器状态
+
+```bash
+# 检查开发服务器是否运行
+ps aux | grep vite
+
+# 如果未运行，启动它
+npm run dev
+```
+
+#### 开发模式优势
+
+- ✅ **实时热更新**：修改 CSS/TS 后立即生效
+- ✅ **无需构建**：节省时间，快速迭代
+- ✅ **Source Maps**：完整的调试支持
+- ✅ **快速反馈**：保存即看到效果
+
+### 📦 生产部署（正式发布）
+
+**仅在需要发布生产版本时使用**：
 
 ```bash
 # 方式1：构建并自动部署（推荐，默认递增小版本号）
@@ -304,7 +341,7 @@ npm run deploy:major
 
 **⚠️ 重要**: 每次部署都会自动递增版本号，无需手动修改 `package.json`！
 
-### 部署流程说明
+### 生产部署流程说明
 
 1. **构建阶段** (`npm run build`):
    - 运行 TypeScript 编译检查
@@ -323,6 +360,28 @@ npm run deploy:major
    - 设置文件权限
    - 清理旧备份（保留最近10个）
    - 显示新版本号信息
+
+### ⚠️ 开发模式注意事项
+
+**当前 Nginx 配置**：
+- Nginx 已配置为 `proxy_pass http://localhost:5173`
+- 访问 `https://ai.roguelife.de` 会直接连接到开发服务器
+- **开发服务器必须保持运行**，否则网站无法访问
+
+**每次修改代码时**：
+1. ✅ 确保开发服务器正在运行（`npm run dev`）
+2. ✅ 修改代码并保存
+3. ✅ 浏览器自动热更新，立即看到效果
+4. ❌ **不需要**运行 `npm run build`
+
+**切换到生产模式**：
+如果需要切换到生产版本，需要修改 Nginx 配置：
+```bash
+# 恢复为静态文件服务
+sudo vim /etc/nginx/sites-available/ai.roguelife.de.conf
+# 将 proxy_pass 改为 root /usr/share/nginx/zombies/dist
+sudo nginx -t && sudo systemctl reload nginx
+```
 
 ### 部署路径
 
@@ -381,27 +440,60 @@ npm run deploy:major
 1. 在 `src/game/entities/zombieTypes.ts` 中添加类型定义
 2. 在 `src/game/scenes/BattleScene.ts` 的 `spawnZombie()` 中使用
 3. 更新怪物图鉴（`src/main.ts`）
-4. 运行 `npm run build` 部署
+4. 保存文件，浏览器自动热更新（开发模式）
+5. 如需发布生产版本，运行 `npm run build`
 
 ### 修改游戏平衡
 1. 修改技能伤害、冷却等数值（`skillDefs.ts`）
 2. 修改僵尸血量、速度等（`zombieTypes.ts` 或 `BattleScene.ts`）
 3. 修改波次难度（`BattleScene.ts` 的 `updateDifficulty()`）
-4. 运行 `npm run build` 部署
+4. 保存文件，浏览器自动热更新（开发模式）
+5. 如需发布生产版本，运行 `npm run build`
 
 ### 修复Bug
-1. 定位问题代码
-2. 修复问题
-3. 测试验证
-4. **运行 `npm run build` 部署**
+1. 确保开发服务器正在运行（`npm run dev`）
+2. 定位问题代码
+3. 修复问题
+4. 保存文件，浏览器自动热更新
+5. 测试验证
+6. 提交到 git：`git add . && git commit -m "fix: 描述修复内容"`
+7. 如需发布生产版本，运行 `npm run build`
 
 ---
 
 ## 重要提醒
 
-### ⚠️ 每次修改代码后必须执行部署
+### ⚠️ 开发模式：保持开发服务器运行
 
-**部署命令**:
+**当前配置**：Nginx 已指向开发服务器，**每次修改代码时**：
+
+1. ✅ **确保开发服务器运行**：
+   ```bash
+   # 检查是否运行
+   ps aux | grep vite
+   
+   # 如果未运行，启动它
+   npm run dev
+   ```
+
+2. ✅ **修改代码并保存**：浏览器会自动热更新
+
+3. ✅ **无需构建**：直接通过 `https://ai.roguelife.de` 访问即可
+
+4. ✅ **提交到 git**：
+   ```bash
+   git add .
+   git commit -m "描述你的修改"
+   ```
+
+**⚠️ 重要**：
+- 开发服务器必须保持运行，停止后网站无法访问
+- 修改代码后保存即可，无需运行 `npm run build`
+- 仅在需要发布生产版本时才运行 `npm run build`
+
+### 📦 生产部署（仅在需要时）
+
+**仅在需要发布生产版本时执行**：
 ```bash
 npm run build
 ```
@@ -410,13 +502,9 @@ npm run build
 1. 编译 TypeScript
 2. 构建生产版本
 3. 备份现有部署
-4. 部署新版本
+4. 部署到 `/usr/share/nginx/zombies/dist`
 5. 设置正确的文件权限
-
-**不要忘记部署！** 代码修改只有在部署后才会生效。
-每次发布也提交到 git 
-使用 git add. , git comit -m "" 
-填写合适的 注释
+6. 自动递增版本号
 ---
 
 ## 联系和参考

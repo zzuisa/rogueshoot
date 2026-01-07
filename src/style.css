@@ -163,15 +163,18 @@ canvas {
   right: 12px;
   top: 55px; /* 怪物图鉴标题高度(约35px) + 间距(8px) + top(12px) = 55px */
   z-index: 10;
-  width: 200px;
-  background: rgba(12, 15, 20, 0.6);
-  backdrop-filter: blur(6px);
-  border: 1px solid rgba(232, 240, 255, 0.18);
-  padding: 8px;
-  font-size: 12px;
-  pointer-events: auto;
+  font-size: 12px; /* 与怪物图鉴一致 */
+  max-width: 280px; /* 与怪物图鉴一致 */
   max-height: calc(100vh - 24px);
-  overflow: visible; /* 不滚动，铺开显示 */
+  overflow-y: auto; /* 允许滚动 */
+  overflow-x: hidden; /* 隐藏横向滚动条 */
+  scrollbar-width: none; /* Firefox: 隐藏滚动条 */
+  -ms-overflow-style: none; /* IE/Edge: 隐藏滚动条 */
+}
+
+/* Webkit浏览器（Chrome/Safari）: 隐藏滚动条但保持滚动功能 */
+#skills-bar::-webkit-scrollbar {
+  display: none;
 }
 
 /* 移动端技能栏调整 */
@@ -179,10 +182,31 @@ canvas {
   #skills-bar {
     right: 4px;
     top: 20px; /* 移动端怪物图鉴更小，调整位置 */
-    width: 200px; /* 与怪物图鉴宽度一致 */
-    padding: 4px;
-    font-size: 10px;
-    max-height: calc(100vh - 60px); /* 避免超出屏幕 */
+    max-width: 200px; /* 与怪物图鉴宽度一致 */
+    font-size: 10px; /* 与怪物图鉴一致 */
+    max-height: calc(100vh - 8px); /* 与怪物图鉴一致 */
+  }
+  
+  .skills-bar-title {
+    padding: 4px 6px; /* 与怪物图鉴标题一致 */
+    margin-bottom: 4px; /* 与怪物图鉴标题一致 */
+    font-size: 10px; /* 与怪物图鉴标题一致 */
+  }
+  
+  .skill-item {
+    padding: 4px; /* 与怪物图鉴项一致 */
+  }
+  
+  .skill-item-name {
+    font-size: 11px; /* 与怪物图鉴项名称一致 */
+  }
+  
+  .skill-item-level {
+    font-size: 9px; /* 与怪物图鉴项统计一致 */
+  }
+  
+  .skill-item-stats {
+    font-size: 9px; /* 与怪物图鉴项统计一致 */
   }
 }
 
@@ -229,27 +253,32 @@ canvas {
 }
 
 .skill-item {
-  padding: 6px;
-  border: 1px solid rgba(232, 240, 255, 0.1);
-  background: rgba(12, 15, 20, 0.4);
+  padding: 8px; /* 与怪物图鉴项一致 */
+  border: 1px solid rgba(232, 240, 255, 0.18); /* 与怪物图鉴项一致 */
+  background: rgba(12, 15, 20, 0.6); /* 与怪物图鉴项一致 */
+  backdrop-filter: blur(6px); /* 与怪物图鉴项一致 */
+  pointer-events: none;
 }
 
 .skill-item-name {
   font-weight: bold;
+  font-size: 13px; /* 与怪物图鉴项名称一致 */
   color: #e8f0ff;
-  margin-bottom: 2px;
+  margin-bottom: 6px; /* 与怪物图鉴项一致 */
 }
 
 .skill-item-level {
-  font-size: 11px;
-  color: rgba(232, 240, 255, 0.7);
+  font-size: 11px; /* 与怪物图鉴项统计一致 */
+  color: rgba(232, 240, 255, 0.85); /* 与怪物图鉴项统计一致 */
+  line-height: 1.4; /* 与怪物图鉴项统计一致 */
+  margin: 2px 0; /* 与怪物图鉴项统计一致 */
 }
 
 .skill-item-stats {
-  font-size: 10px;
-  color: rgba(169, 193, 255, 0.8);
+  font-size: 11px; /* 与怪物图鉴项统计一致 */
+  color: rgba(232, 240, 255, 0.85); /* 与怪物图鉴项统计一致 */
   margin-top: 4px;
-  line-height: 1.4;
+  line-height: 1.4; /* 与怪物图鉴项统计一致 */
   word-break: break-all;
 }
 
@@ -416,9 +445,26 @@ canvas {
   }
 
   #skills-bar {
-    width: 160px; /* 与怪物图鉴宽度一致 */
-    max-height: 150px;
-    font-size: 9px;
+    max-width: 160px; /* 与怪物图鉴宽度一致 */
+    font-size: 9px; /* 与怪物图鉴一致 */
+    max-height: calc(100vh - 8px); /* 与怪物图鉴一致 */
+  }
+  
+  .skills-bar-title {
+    padding: 3px 5px; /* 与怪物图鉴标题一致 */
+    font-size: 9px; /* 与怪物图鉴标题一致 */
+  }
+  
+  .skill-item-name {
+    font-size: 10px; /* 与怪物图鉴项名称一致 */
+  }
+  
+  .skill-item-level {
+    font-size: 8px; /* 与怪物图鉴项统计一致 */
+  }
+  
+  .skill-item-stats {
+    font-size: 8px; /* 与怪物图鉴项统计一致 */
   }
 }
 

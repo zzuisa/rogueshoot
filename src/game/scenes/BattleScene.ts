@@ -2247,14 +2247,12 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 在canvas内绘制主武器信息（左上角，深度999，低于技能选择界面1000）
+   * 在canvas内绘制主武器信息（左上角，深度999，常显示，无边框）
    */
   private drawWeaponInfo() {
-    this.weaponInfoGfx.clear()
+    this.weaponInfoGfx.clear() // 不再绘制背景和边框，只清理
     
     const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
-    if (bulletSpreadLevel === 0) return // 没有升级时不显示
-    
     const bulletCount = this.skills.bulletCount
     const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
     const damage = this.player.damage
@@ -2265,20 +2263,9 @@ export class BattleScene extends Phaser.Scene {
     
     // 根据屏幕尺寸调整参数
     const x = isMobile ? 4 : 12
-    const y = isMobile ? 100 : 120 // 与CSS中的top值对应
+    const y = isMobile ? 100 : 120
     const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
     const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
-    const itemWidth = isSmallMobile ? 120 : (isMobile ? 140 : 160)
-    const padding = isMobile ? 2 : 4
-    
-    // 计算内容高度（标题 + 3行信息）
-    const itemHeight = 4 * lineHeight + padding * 2 + (isMobile ? 16 : 20)
-    
-    // 背景（半透明）
-    this.weaponInfoGfx.fillStyle(0x0c0f14, 0.6)
-    this.weaponInfoGfx.fillRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
-    this.weaponInfoGfx.lineStyle(1, 0x6bff95, 0.5)
-    this.weaponInfoGfx.strokeRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
     
     // 清理旧文本
     this.weaponInfoTexts.forEach(t => t.destroy())
@@ -2297,7 +2284,7 @@ export class BattleScene extends Phaser.Scene {
     currentY += lineHeight + 2
     
     // 散射信息
-    const spreadText = `子弹散射: Lv.${bulletSpreadLevel}`
+    const spreadText = `散射: Lv.${bulletSpreadLevel} (${spreadDeg}°)`
     const spreadObj = this.add.text(x, currentY, spreadText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
@@ -2306,8 +2293,8 @@ export class BattleScene extends Phaser.Scene {
     this.weaponInfoTexts.push(spreadObj)
     currentY += lineHeight
     
-    // 子弹数信息
-    const countText = `子弹数: ${bulletCount}`
+    // 连发信息
+    const countText = `连发: ${bulletCount}`
     const countObj = this.add.text(x, currentY, countText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
@@ -2316,14 +2303,14 @@ export class BattleScene extends Phaser.Scene {
     this.weaponInfoTexts.push(countObj)
     currentY += lineHeight
     
-    // 散射角信息
-    const angleText = `散射角: ${spreadDeg}°`
-    const angleObj = this.add.text(x, currentY, angleText, {
+    // 伤害信息
+    const damageText = `伤害: ${damage}`
+    const damageObj = this.add.text(x, currentY, damageText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
       fontFamily: 'monospace',
     }).setOrigin(0, 0).setDepth(999)
-    this.weaponInfoTexts.push(angleObj)
+    this.weaponInfoTexts.push(damageObj)
   }
 
   /**
@@ -2509,182 +2496,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 在canvas内绘制已选技能框（右上角，深度999，低于技能选择界面1000）
-   */
-  private drawSkillsBar() {
-    this.skillsBarGfx.clear()
-    
-    // 清理旧文本和交互区域
-    this.skillsBarTexts.forEach(t => t.destroy())
-    this.skillsBarTexts = []
-    this.skillsBarZones.forEach(z => z.destroy())
-    this.skillsBarZones = []
-    
-    // 获取所有已解锁的主技能
-    const unlockedSkills = this.skills.getUnlockedMainSkills()
-    
-    // 先收集所有分支技能，按主技能分组
-    const upgradeSkillsByMain: Map<MainSkillId, Array<{ def: SkillDef; level: number }>> = new Map()
-    
-    for (const skillId in SKILL_DEFS) {
-      const def = SKILL_DEFS[skillId as SkillId]
-      if (def.type !== 'upgrade' || !def.requires) continue
-      
-      const level = this.skills.getLevel(skillId as SkillId)
-      if (level <= 0) continue
-
-      if (!upgradeSkillsByMain.has(def.requires)) {
-        upgradeSkillsByMain.set(def.requires, [])
-      }
-      upgradeSkillsByMain.get(def.requires)!.push({ def, level })
-    }
-    
-    // 移动端检测
-    const isMobile = this.scale.width <= 768
-    const isSmallMobile = this.scale.width <= 480
-    
-    // 根据屏幕尺寸调整参数
-    const right = isMobile ? 4 : 12
-    const top = isMobile ? 50 : 55 // 与CSS中的top值对应
-    const width = isSmallMobile ? 120 : (isMobile ? 140 : 200)
-    const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
-    const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
-    const padding = isMobile ? 4 : 8
-    
-    let currentY = top + padding
-    const x = this.scale.width - right - width
-    
-    // 过滤掉 bullet_spread（主武器增强，不在技能栏显示）
-    const skillsToShow = unlockedSkills.filter(id => id !== 'bullet_spread')
-      .map(id => {
-        const def = SKILL_DEFS[id]
-        if (!def) return null
-        const level = this.skills.getLevel(id)
-        if (level <= 0) return null
-        return { id, def, level }
-      })
-      .filter((item): item is { id: MainSkillId; def: SkillDef; level: number } => item !== null)
-    
-    if (skillsToShow.length === 0) return // 没有技能时不显示
-    
-    // 计算总高度
-    let totalHeight = padding * 2
-    for (const { id, def, level } of skillsToShow) {
-      totalHeight += lineHeight + 2 // 主技能名称
-      totalHeight += lineHeight // 等级
-      const stats = this.getSkillStats(id, level)
-      if (stats) {
-        totalHeight += lineHeight // 属性
-      }
-      const upgrades = upgradeSkillsByMain.get(id)
-      if (upgrades && upgrades.length > 0) {
-        totalHeight += upgrades.length * lineHeight // 分支技能
-      }
-      totalHeight += 4 // 间距
-    }
-    
-    // 绘制背景
-    this.skillsBarGfx.fillStyle(0x0c0f14, 0.6)
-    this.skillsBarGfx.fillRoundedRect(x, top, width, totalHeight, 4)
-    this.skillsBarGfx.lineStyle(1, 0x6bffea, 0.5)
-    this.skillsBarGfx.strokeRoundedRect(x, top, width, totalHeight, 4)
-    
-    // 绘制标题
-    const title = this.add.text(x + padding, currentY, '已选技能', {
-      fontSize: `${fontSize + 1}px`,
-      color: '#6bffea',
-      fontFamily: 'monospace',
-      fontStyle: 'bold',
-    }).setOrigin(0, 0).setDepth(999)
-    this.skillsBarTexts.push(title)
-    currentY += lineHeight + 4
-    
-    // 绘制每个技能
-    for (const { id, def, level } of skillsToShow) {
-      const skillY = currentY
-      let skillHeight = 0
-      
-      // 主技能名称
-      const nameText = `${def.name} [主动]`
-      const nameObj = this.add.text(x + padding, currentY, nameText, {
-        fontSize: `${fontSize}px`,
-        color: '#a9c1ff',
-        fontFamily: 'monospace',
-      }).setOrigin(0, 0).setDepth(999)
-      this.skillsBarTexts.push(nameObj)
-      currentY += lineHeight
-      skillHeight += lineHeight
-      
-      // 等级
-      const levelText = `等级: ${level}/${def.maxLevel}`
-      const levelObj = this.add.text(x + padding, currentY, levelText, {
-        fontSize: `${fontSize - 1}px`,
-        color: '#e8f0ff',
-        fontFamily: 'monospace',
-      }).setOrigin(0, 0).setDepth(999)
-      this.skillsBarTexts.push(levelObj)
-      currentY += lineHeight
-      skillHeight += lineHeight
-      
-      // 属性
-      const stats = this.getSkillStats(id, level)
-      if (stats) {
-        const statsObj = this.add.text(x + padding, currentY, stats, {
-          fontSize: `${fontSize - 1}px`,
-          color: 'rgba(232, 240, 255, 0.85)',
-          fontFamily: 'monospace',
-        }).setOrigin(0, 0).setDepth(999)
-        this.skillsBarTexts.push(statsObj)
-        currentY += lineHeight
-        skillHeight += lineHeight
-      }
-      
-      // 分支技能（强化词条）
-      const upgrades = upgradeSkillsByMain.get(id)
-      if (upgrades && upgrades.length > 0) {
-        for (const { def: upgradeDef, level: upgradeLevel } of upgrades) {
-          const upgradeText = `  └ ${upgradeDef.name} [强化] Lv.${upgradeLevel}/${upgradeDef.maxLevel}`
-          const upgradeObj = this.add.text(x + padding, currentY, upgradeText, {
-            fontSize: `${fontSize - 1}px`,
-            color: 'rgba(232, 240, 255, 0.85)',
-            fontFamily: 'monospace',
-          }).setOrigin(0, 0).setDepth(999)
-          this.skillsBarTexts.push(upgradeObj)
-          currentY += lineHeight
-          skillHeight += lineHeight
-        }
-      }
-      
-      // 添加交互区域（用于按住显示技能范围）
-      if (def.range) {
-        const zone = this.add.zone(x, skillY, width, skillHeight)
-        zone.setDepth(999)
-        zone.setInteractive({ useHandCursor: true })
-        
-        // 鼠标按下/触摸按下：显示范围
-        zone.on('pointerdown', () => {
-          this.showSkillRange(id, level)
-        })
-        
-        // 鼠标松开/触摸松开：隐藏范围
-        zone.on('pointerup', () => {
-          this.hideSkillRange()
-        })
-        
-        // 鼠标移出：隐藏范围
-        zone.on('pointerout', () => {
-          this.hideSkillRange()
-        })
-        
-        this.skillsBarZones.push(zone)
-      }
-      
-      currentY += 4 // 技能间距
-    }
-  }
-
-  /**
-   * 更新技能状态栏（DOM方式，保留用于兼容，但不再使用）
+   * 更新技能状态栏（DOM方式）
    */
   private updateSkillsBar() {
     const skillsBarList = document.getElementById('skills-bar-list')

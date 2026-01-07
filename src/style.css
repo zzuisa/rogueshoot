@@ -189,8 +189,8 @@ canvas {
 @media screen and (max-width: 480px) {
   #skills-bar {
     right: 2px;
-    top: 45px;
-    width: 120px;
+    top: 25px;
+    width: 80px;
     padding: 3px;
     font-size: 9px;
     max-height: calc(100vh - 50px);

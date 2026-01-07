@@ -1,0 +1,31 @@
+server {
+    listen 80;
+    server_name your-domain.com;  # 替换为你的域名或IP
+    
+    # 网站根目录（指向dist目录）
+    root /var/www/zombies/dist;
+    index index.html;
+    
+    # 启用gzip压缩
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+    
+    # 静态资源缓存
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # SPA路由支持（所有路由都返回index.html）
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    
+    # 安全头
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+}
+

@@ -1,0 +1,450 @@
+/* Pixel-ish UI shell for Phaser canvas + minimal HUD */
+
+:root {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #0c0f14;
+  color: #e8f0ff;
+}
+
+html,
+body {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  /* 移动端优化 */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none; /* 防止默认触摸行为 */
+}
+
+body {
+  /* 防止移动端缩放 */
+  touch-action: pan-x pan-y;
+}
+
+#app {
+  height: 100%;
+}
+
+#game-root {
+  height: 100%;
+}
+
+canvas {
+  display: block;
+  margin: 0 auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  /* 移动端优化 */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#hud {
+  position: fixed;
+  left: 12px;
+  top: 12px;
+  z-index: 10;
+  pointer-events: none;
+  font-size: 14px;
+}
+
+.hud-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.hud-row + .hud-row {
+  margin-top: 8px;
+}
+
+.hud-pill {
+  pointer-events: none;
+  padding: 6px 10px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.hud-hint {
+  opacity: 0.85;
+}
+
+/* 人物属性（主武器信息） */
+#player-stats {
+  position: fixed;
+  left: 12px;
+  top: 80px;
+  z-index: 10;
+  pointer-events: none;
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  min-width: 140px;
+}
+
+.player-stats-title {
+  font-weight: bold;
+  color: #6bff95;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.player-stats-item {
+  font-size: 11px;
+  color: rgba(232, 240, 255, 0.85);
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.player-stats-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 怪物图鉴 */
+#bestiary {
+  position: fixed;
+  right: 12px;
+  top: 12px;
+  z-index: 10;
+  font-size: 12px;
+  max-width: 200px;
+}
+
+.bestiary-title {
+  font-weight: bold;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.bestiary-title:hover {
+  background: rgba(12, 15, 20, 0.8);
+}
+
+.bestiary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.bestiary-item {
+  padding: 8px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+
+.bestiary-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.bestiary-item-color {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.bestiary-item-name {
+  font-weight: bold;
+  font-size: 13px;
+}
+
+.bestiary-item-stats {
+  font-size: 11px;
+  line-height: 1.4;
+  color: rgba(232, 240, 255, 0.85);
+}
+
+.bestiary-item-stat {
+  margin: 2px 0;
+}
+
+/* 技能状态栏 */
+#skills-bar {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: 200px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  padding: 8px;
+  font-size: 12px;
+  pointer-events: auto;
+}
+
+.skills-bar-title {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  text-align: center;
+  color: #a9c1ff;
+}
+
+.skills-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skill-item {
+  padding: 6px;
+  border: 1px solid rgba(232, 240, 255, 0.1);
+  background: rgba(12, 15, 20, 0.4);
+}
+
+.skill-item-name {
+  font-weight: bold;
+  color: #e8f0ff;
+  margin-bottom: 2px;
+}
+
+.skill-item-level {
+  font-size: 11px;
+  color: rgba(232, 240, 255, 0.7);
+}
+
+.skill-item-stats {
+  font-size: 10px;
+  color: rgba(169, 193, 255, 0.8);
+  margin-top: 4px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.skill-item-main {
+  border-left: 3px solid #6bff95; /* 主技能：绿色边框 */
+  margin-bottom: 2px;
+}
+
+.skill-item-upgrade {
+  border-left: 2px solid #a9c1ff; /* 强化词条：蓝色边框 */
+  margin-left: 12px;
+  padding-left: 8px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  font-size: 11px;
+}
+
+.skill-item-upgrade .skill-item-name {
+  color: rgba(232, 240, 255, 0.85);
+}
+
+.skill-item-tag {
+  font-size: 9px;
+  color: rgba(169, 193, 255, 0.8);
+  font-weight: normal;
+}
+
+/* 疯狂模式按钮 */
+.crazy-mode-btn {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 20;
+  padding: 8px 16px;
+  border: 2px solid #ff6b6b;
+  background: rgba(255, 107, 107, 0.2);
+  color: #ff6b6b;
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  backdrop-filter: blur(6px);
+}
+
+.crazy-mode-btn:hover {
+  background: rgba(255, 107, 107, 0.4);
+  border-color: #ff4444;
+}
+
+.crazy-mode-btn.active {
+  background: rgba(255, 107, 107, 0.6);
+  border-color: #ff0000;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.5);
+}
+
+/* 移动端按钮调整 */
+@media screen and (max-width: 768px) {
+  .crazy-mode-btn {
+    right: 4px;
+    bottom: 4px;
+    padding: 6px 12px;
+    font-size: 10px;
+  }
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  /* HUD 调整：缩小字体和间距，移到顶部边缘 */
+  #hud {
+    left: 4px;
+    top: 4px;
+    font-size: 11px;
+  }
+
+  .hud-row {
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+
+  .hud-row + .hud-row {
+    margin-top: 4px;
+  }
+
+  .hud-pill {
+    padding: 4px 6px;
+    font-size: 10px;
+  }
+
+  .hud-hint {
+    display: none; /* 移动端隐藏提示文字 */
+  }
+
+  /* 人物属性（移动端） */
+  #player-stats {
+    left: 4px;
+    top: 60px;
+    font-size: 10px;
+    padding: 6px 8px;
+    min-width: 120px;
+  }
+
+  .player-stats-title {
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .player-stats-item {
+    font-size: 10px;
+    margin-bottom: 2px;
+  }
+
+  /* 怪物图鉴：移到右上角，缩小尺寸，默认折叠 */
+  #bestiary {
+    right: 4px;
+    top: 4px;
+    max-width: 140px;
+    font-size: 10px;
+  }
+
+  .bestiary-title {
+    padding: 4px 6px;
+    margin-bottom: 4px;
+    font-size: 10px;
+  }
+
+  .bestiary-item {
+    padding: 4px;
+  }
+
+  .bestiary-item-name {
+    font-size: 11px;
+  }
+
+  .bestiary-item-stats {
+    font-size: 9px;
+  }
+
+  /* 技能状态栏：移到左下角，缩小尺寸，限制高度 */
+  #skills-bar {
+    left: 4px;
+    bottom: 4px;
+    width: 140px;
+    max-height: 200px;
+    padding: 4px;
+    font-size: 10px;
+  }
+
+  .skills-bar-title {
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+
+  .skill-item {
+    padding: 4px;
+  }
+
+  .skill-item-name {
+    font-size: 10px;
+  }
+
+  .skill-item-level {
+    font-size: 9px;
+  }
+}
+
+/* 小屏幕移动端（手机竖屏） */
+@media screen and (max-width: 480px) {
+  #hud {
+    font-size: 10px;
+  }
+
+  .hud-pill {
+    padding: 3px 5px;
+    font-size: 9px;
+  }
+
+  /* 进一步缩小怪物图鉴和技能栏 */
+  #bestiary {
+    max-width: 120px;
+    font-size: 9px;
+  }
+
+  .bestiary-title {
+    padding: 3px 5px;
+    font-size: 9px;
+  }
+
+  #skills-bar {
+    width: 120px;
+    max-height: 150px;
+    font-size: 9px;
+  }
+}
+
+/* 横屏模式 */
+@media screen and (max-width: 768px) and (orientation: landscape) {
+  /* 横屏时进一步调整布局 */
+  #hud {
+    top: 2px;
+    left: 2px;
+  }
+
+  #bestiary {
+    top: 2px;
+    right: 2px;
+    max-width: 120px;
+  }
+
+  #skills-bar {
+    bottom: 2px;
+    left: 2px;
+    width: 120px;
+    max-height: 120px;
+  }
+}

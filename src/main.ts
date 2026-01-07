@@ -36,6 +36,14 @@ app.innerHTML = `
     <div class="damage-stats-list" id="damage-stats-list"></div>
   </div>
   <button id="crazy-mode-btn" class="crazy-mode-btn">疯狂模式 OFF</button>
+  <button id="debug-btn" class="debug-btn">DEBUG</button>
+  <div id="debug-panel" class="debug-panel" style="display: none;">
+    <div class="debug-panel-header">
+      <span>调试：选择技能升级</span>
+      <button id="debug-close" class="debug-close">×</button>
+    </div>
+    <div id="debug-skill-list" class="debug-skill-list"></div>
+  </div>
   <div id="version-info" class="version-info"></div>
 `
 
@@ -189,3 +197,137 @@ const loadVersionInfo = async () => {
 
 // 页面加载后显示版本信息
 loadVersionInfo()
+
+// Debug按钮功能
+const debugBtn = document.getElementById('debug-btn')
+const debugPanel = document.getElementById('debug-panel')
+const debugClose = document.getElementById('debug-close')
+const debugSkillList = document.getElementById('debug-skill-list')
+
+if (debugBtn && debugPanel && debugClose && debugSkillList) {
+  // 等待BattleScene创建
+  const setupDebugPanel = () => {
+    const battleScene = (window as any).battleScene
+    if (!battleScene) {
+      setTimeout(setupDebugPanel, 100)
+      return
+    }
+    
+    // 打开/关闭面板
+    debugBtn.addEventListener('click', () => {
+      const isVisible = debugPanel.style.display !== 'none'
+      if (isVisible) {
+        debugPanel.style.display = 'none'
+      } else {
+        updateDebugSkillList()
+        debugPanel.style.display = 'flex'
+      }
+    })
+    
+    debugClose.addEventListener('click', () => {
+      debugPanel.style.display = 'none'
+    })
+    
+    // 更新技能列表
+    const updateDebugSkillList = () => {
+      debugSkillList.innerHTML = ''
+      
+      // 导入技能定义
+      import('./game/skills/skillDefs').then(({ SKILL_DEFS }) => {
+        const skills = battleScene.skills
+        
+        // 按主技能分组显示
+        const mainSkills: { [key: string]: any[] } = {}
+        const upgradeSkills: any[] = []
+        
+        for (const skillDef of Object.values(SKILL_DEFS)) {
+          const currentLevel = skills.getLevel(skillDef.id)
+          const maxLevel = skillDef.maxLevel
+          const isMaxLevel = currentLevel >= maxLevel
+          
+          const skillItem = {
+            id: skillDef.id,
+            name: skillDef.name,
+            desc: skillDef.desc,
+            type: skillDef.type,
+            currentLevel,
+            maxLevel,
+            isMaxLevel,
+            requires: skillDef.requires,
+          }
+          
+          if (skillDef.type === 'main') {
+            if (!mainSkills[skillDef.id]) {
+              mainSkills[skillDef.id] = []
+            }
+            mainSkills[skillDef.id].push(skillItem)
+          } else {
+            upgradeSkills.push(skillItem)
+          }
+        }
+        
+        // 显示主技能
+        for (const [mainId, items] of Object.entries(mainSkills)) {
+          const item = items[0]
+          const div = document.createElement('div')
+          div.className = `debug-skill-item ${item.isMaxLevel ? 'max-level' : ''}`
+          div.innerHTML = `
+            <div class="debug-skill-item-name">${item.name}</div>
+            <div class="debug-skill-item-desc">${item.desc}</div>
+            <div class="debug-skill-item-level">等级: ${item.currentLevel}/${item.maxLevel}</div>
+          `
+          if (!item.isMaxLevel) {
+            div.addEventListener('click', () => {
+              skills.levelUp(item.id)
+              // 更新技能栏（如果方法存在）
+              if (typeof battleScene.updateSkillsBar === 'function') {
+                battleScene.updateSkillsBar()
+              }
+              updateDebugSkillList()
+            })
+          }
+          debugSkillList.appendChild(div)
+        }
+        
+        // 显示分支升级（按主技能分组）
+        const upgradeGroups: { [key: string]: any[] } = {}
+        for (const item of upgradeSkills) {
+          if (!item.requires) continue
+          if (!upgradeGroups[item.requires]) {
+            upgradeGroups[item.requires] = []
+          }
+          upgradeGroups[item.requires].push(item)
+        }
+        
+        for (const [mainId, items] of Object.entries(upgradeGroups)) {
+          // 检查主技能是否已解锁
+          const mainSkillUnlocked = skills.isUnlocked(mainId)
+          if (!mainSkillUnlocked) continue
+          
+          for (const item of items) {
+            const div = document.createElement('div')
+            div.className = `debug-skill-item ${item.isMaxLevel ? 'max-level' : ''}`
+            div.innerHTML = `
+              <div class="debug-skill-item-name">${item.name}</div>
+              <div class="debug-skill-item-desc">${item.desc}</div>
+              <div class="debug-skill-item-level">等级: ${item.currentLevel}/${item.maxLevel}</div>
+            `
+            if (!item.isMaxLevel) {
+              div.addEventListener('click', () => {
+                skills.levelUp(item.id)
+                // 更新技能栏（如果方法存在）
+                if (typeof battleScene.updateSkillsBar === 'function') {
+                  battleScene.updateSkillsBar()
+                }
+                updateDebugSkillList()
+              })
+            }
+            debugSkillList.appendChild(div)
+          }
+        }
+      })
+    }
+  }
+  
+  setupDebugPanel()
+}

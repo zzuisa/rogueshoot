@@ -2,7 +2,6 @@ import Phaser from 'phaser'
 import { Player } from '../entities/Player'
 import { Zombie } from '../entities/Zombie'
 import { Bullet } from '../entities/Bullet'
-import { SecondaryBullet } from '../entities/SecondaryBullet'
 import { Tornado } from '../entities/Tornado'
 import { EnemyShot } from '../entities/EnemyShot'
 import { ZOMBIE_TYPES, type ZombieKind } from '../entities/zombieTypes'
@@ -21,7 +20,6 @@ export class BattleScene extends Phaser.Scene {
   private player!: Player
   private zombies: Zombie[] = []
   private bullets: Bullet[] = []
-  private secondaryBullets: SecondaryBullet[] = []
   private tornados: Tornado[] = []
   
   /** 手动选择的目标（点击鼠标时设置，优先攻击此目标） */
@@ -198,30 +196,8 @@ export class BattleScene extends Phaser.Scene {
       return // 不空弹：无有效目标则不射击且不进入冷却
     }
     
-    // 应用射速倍率
-    const fireRateMult = this.skills.fireRateMult
-    const baseFireInterval = this.player.fireIntervalSec
-    this.player.fireIntervalSec = baseFireInterval / fireRateMult
-    
     this.player.consumeFire()
-    
-    // 子弹连发：每次射击射出多发子弹
-    const rapidFireCount = Math.max(1, 1 + this.skills.rapidFireCount)
-    for (let i = 0; i < rapidFireCount; i++) {
-      // 稍微延迟每发子弹，避免完全重叠
-      const delay = i * 0.05  // 每发延迟50ms
-      if (delay > 0) {
-        this.time.delayedCall(delay * 1000, () => {
-          this.fireBullets(target.x, target.y)
-        })
-      } else {
-        this.fireBullets(target.x, target.y)
-      }
-    }
-    
-    // 恢复原始射速（避免影响其他逻辑）
-    this.player.fireIntervalSec = baseFireInterval
-    
+    this.fireBullets(target.x, target.y)
     this.updateTargetIndicator()
   }
 
@@ -311,16 +287,12 @@ export class BattleScene extends Phaser.Scene {
 
     const count = this.skills.bulletCount
     const spread = this.skills.spreadRad
-    
-    // 应用武器增伤倍率
-    const baseDamage = this.player.damage
-    const weaponDamage = baseDamage * this.skills.weaponDamageMult
 
     if (count === 1) {
       const vx = Math.cos(baseAng) * speed
       const vy = Math.sin(baseAng) * speed
       this.bullets.push(
-        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: weaponDamage, maxDistance: this.player.range }),
+        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range }),
       )
       return
     }
@@ -331,7 +303,7 @@ export class BattleScene extends Phaser.Scene {
       const vx = Math.cos(ang) * speed
       const vy = Math.sin(ang) * speed
       this.bullets.push(
-        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: weaponDamage, maxDistance: this.player.range }),
+        new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range }),
       )
     }
   }
@@ -454,10 +426,6 @@ export class BattleScene extends Phaser.Scene {
         const dmg = b.damage * hit.getDamageTakenMult(this.timeAliveSec)
         this.recordDamage('主武器', dmg)
         hit.takeDamage(dmg)
-        
-        // 子弹分裂逻辑
-        this.spawnBulletSplit(b, hit.x, hit.y)
-        
         b.destroy()
         continue
       }
@@ -537,8 +505,7 @@ export class BattleScene extends Phaser.Scene {
     const baseInterval = zombiesCount > 0 ? waveDurationSec / zombiesCount : 0.9
     
     // 设置下限和上限，避免过快或过慢
-    // 无尽模式下提高下限，避免怪物生成过快
-    const minInterval = this.endlessMode ? 0.5 : 0.3 // 无尽模式最快0.5秒生成一个，正常模式0.3秒
+    const minInterval = 0.3 // 最快0.3秒生成一个
     const maxInterval = 0.9  // 最慢0.9秒生成一个
     const clampedInterval = Phaser.Math.Clamp(baseInterval, minInterval, maxInterval)
     
@@ -763,21 +730,15 @@ export class BattleScene extends Phaser.Scene {
       const y = currentTarget.y
       
       // 如果有多个，稍微偏移位置
-      let targetX = x
-      let targetY = y
       if (count > 1 && i > 0) {
         const offsetX = (Math.random() - 0.5) * 40
         const offsetY = (Math.random() - 0.5) * 40
-        targetX = Phaser.Math.Clamp(x + offsetX, 30, this.scale.width - 30)
-        targetY = Phaser.Math.Clamp(y + offsetY, 50, this.defenseLineY - 50)
-      }
-      
-      // 延迟释放，避免重叠
-      const delay = i * 300
-      this.time.delayedCall(delay, () => {
+        const newX = Phaser.Math.Clamp(x + offsetX, 30, this.scale.width - 30)
+        const newY = Phaser.Math.Clamp(y + offsetY, 50, this.defenseLineY - 50)
+        
         // 伤害计算
         for (const z of this.zombies) {
-          const d = Math.hypot(z.x - targetX, z.y - targetY)
+          const d = Math.hypot(z.x - newX, z.y - newY)
           if (d <= r) {
             const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
             this.recordDamage('温压弹', actualDmg)
@@ -785,14 +746,30 @@ export class BattleScene extends Phaser.Scene {
           }
         }
         
-        // 添加飞行轨迹动画（每个弹道都有）
+        // 延迟释放特效（飞行时间放慢50%，即延迟时间增加100%）
+        this.time.delayedCall(i * 300, () => {
+          this.spawnThermobaricExplosion(newX, newY, r)
+        })
+      } else {
+        // 第一次立即释放
+        // 伤害计算
+        for (const z of this.zombies) {
+          const d = Math.hypot(z.x - x, z.y - y)
+          if (d <= r) {
+            const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
+            this.recordDamage('温压弹', actualDmg)
+            z.takeDamage(actualDmg)
+          }
+        }
+        
+        // 添加飞行轨迹动画
         const flightTime = 0.6  // 飞行时间（秒）
-        this.spawnProjectileTrail(this.player.x, this.player.y, targetX, targetY, flightTime, 0xff6b00, 0xff4500)
+        this.spawnProjectileTrail(this.player.x, this.player.y, x, y, flightTime, 0xff6b00, 0xff4500)
         // 延迟爆炸
         this.time.delayedCall(flightTime * 1000, () => {
-          this.spawnThermobaricExplosion(targetX, targetY, r)
+          this.spawnThermobaricExplosion(x, y, r)
         })
-      })
+      }
     }
   }
 
@@ -969,12 +946,8 @@ export class BattleScene extends Phaser.Scene {
       }
 
       // 延迟释放特效
-      const delay = i * 200
+      const delay = i * 100
       this.time.delayedCall(delay, () => {
-        // 添加飞行轨迹动画（每个弹道都有）
-        const flightTime = 0.3  // 飞行时间（秒）
-        this.spawnProjectileTrail(this.player.x, this.player.y, targetX, targetY, flightTime, 0x87ceeb, 0x4682b4)
-        
         // 冰弹轨迹特效：从玩家位置向目标方向发射的冰蓝色光束
         const g = this.add.graphics()
         
@@ -1205,10 +1178,6 @@ export class BattleScene extends Phaser.Scene {
         r,
         dmg,
       })
-      
-      // 添加飞行轨迹动画（每个炸弹都有）
-      const flightTime = delay + 0.3  // 飞行时间 = 延迟时间 + 0.3秒
-      this.spawnProjectileTrail(this.player.x, this.player.y, bombX, bombY, flightTime, 0xff6b6b, 0xff4500)
       
       // 轰炸标记：显示即将轰炸的位置
       this.spawnBombMarker(bombX, bombY, r, delay)
@@ -1523,19 +1492,16 @@ export class BattleScene extends Phaser.Scene {
     if (this.endlessMode) {
       // 无尽模式：限制增长，避免指数爆炸
       // 前20波：正常增长
-      // 20波后：每10波增加1个（更平缓的增长），并设置上限
+      // 20波后：每5波增加1个（更平缓的增长）
       if (this.currentWave <= this.maxWaves) {
         const increase = Math.floor((this.currentWave - 1) * 0.5) // 每波增加0.5个（向下取整）
         return base + increase
       } else {
-        // 20波后：每10波增加1个（更慢的增长）
+        // 20波后：每5波增加1个
         const extraWaves = this.currentWave - this.maxWaves
-        const extraIncrease = Math.floor(extraWaves / 10) // 每10波增加1个
+        const extraIncrease = Math.floor(extraWaves / 5) // 每5波增加1个
         const baseAt20 = base + Math.floor((this.maxWaves - 1) * 0.5)
-        const total = baseAt20 + extraIncrease
-        // 设置上限：最多50个怪物，避免铺满屏幕
-        const maxZombies = 50
-        return Math.min(total, maxZombies)
+        return baseAt20 + extraIncrease
       }
     } else {
       // 正常模式：每波增加0.5个（向下取整）
@@ -2972,70 +2938,6 @@ export class BattleScene extends Phaser.Scene {
     }
     
     updateTrail()
-  }
-
-  /**
-   * 生成子弹分裂（当子弹命中敌人时）
-   */
-  private spawnBulletSplit(bullet: Bullet, hitX: number, hitY: number) {
-    const split2Count = this.skills.split2Count
-    const split4Count = this.skills.split4Count
-    
-    // 分裂成2发（1->2）
-    if (split2Count > 0) {
-      for (let i = 0; i < split2Count; i++) {
-        // 计算分裂角度：垂直于原子弹方向，左右各一发
-        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
-        const splitAngle = baseAngle + (i === 0 ? -Math.PI / 2 : Math.PI / 2) + (Math.random() - 0.5) * 0.3
-        const speed = 100  // 次级子弹速度稍慢
-        const vx = Math.cos(splitAngle) * speed
-        const vy = Math.sin(splitAngle) * speed
-        
-        // 次级子弹伤害继承主子弹的60%
-        const secondaryDamage = bullet.damage * 0.6
-        
-        this.secondaryBullets.push(
-          new SecondaryBullet(this, {
-            x: hitX,
-            y: hitY,
-            vx,
-            vy,
-            damage: secondaryDamage,
-            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
-            parent: bullet,
-            splitLevel: 0,
-          })
-        )
-      }
-    }
-    
-    // 分裂成4发（1->4）
-    if (split4Count > 0) {
-      for (let i = 0; i < split4Count; i++) {
-        // 计算分裂角度：均匀分布在360度
-        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
-        const splitAngle = baseAngle + (Math.PI * 2 / 4) * i + (Math.random() - 0.5) * 0.2
-        const speed = 100  // 次级子弹速度稍慢
-        const vx = Math.cos(splitAngle) * speed
-        const vy = Math.sin(splitAngle) * speed
-        
-        // 次级子弹伤害继承主子弹的50%（4发时伤害更低）
-        const secondaryDamage = bullet.damage * 0.5
-        
-        this.secondaryBullets.push(
-          new SecondaryBullet(this, {
-            x: hitX,
-            y: hitY,
-            vx,
-            vy,
-            damage: secondaryDamage,
-            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
-            parent: bullet,
-            splitLevel: 0,
-          })
-        )
-      }
-    }
   }
 
   /**

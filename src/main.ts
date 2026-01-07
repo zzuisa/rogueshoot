@@ -23,16 +23,6 @@ app.innerHTML = `
     向僵尸开炮！
     </div>
   </div>
-  <div id="player-weapon-info" class="player-weapon-info">
-    <div class="player-weapon-title">主武器</div>
-    <div class="player-weapon-item">散射: Lv.0</div>
-    <div class="player-weapon-item">连发: 1</div>
-    <div class="player-weapon-item">伤害: 5</div>
-  </div>
-  <div id="player-stats" style="display: none;">
-    <div class="player-stats-title">主武器</div>
-    <div class="player-stats-item">子弹散射: Lv.0</div>
-  </div>
   <div id="bestiary">
     <div class="bestiary-title" id="bestiary-toggle">怪物图鉴 ▼</div>
     <div class="bestiary-list" id="bestiary-list"></div>

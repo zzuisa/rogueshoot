@@ -75,71 +75,7 @@ canvas {
 }
 
 /* 主武器信息（左上角常显示） */
-#player-weapon-info {
-  position: fixed;
-  left: 12px;
-  top: 32px;
-  z-index: 1;
-  pointer-events: none; /* 不阻挡交互 */
-  font-size: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(232, 240, 255, 0.18);
-  background: rgba(12, 15, 20, 0.6);
-  backdrop-filter: blur(6px);
-  min-width: 140px;
-}
-
-.player-weapon-title {
-  font-weight: bold;
-  color: #6bff95;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-
-.player-weapon-item {
-  font-size: 11px;
-  color: rgba(232, 240, 255, 0.85);
-  margin-bottom: 3px;
-  line-height: 1.4;
-}
-
-.player-weapon-item:last-child {
-  margin-bottom: 0;
-}
-
-/* 人物属性（主武器信息，已废弃，保留兼容） */
-#player-stats {
-  position: fixed;
-  left: 12px;
-  top: 120px; /* 向下移动，避免遮挡HP等信息 */
-  z-index: 5; /* 降低层级，避免遮挡技能选择界面 */
-  pointer-events: auto; /* 允许点击 */
-  font-size: 12px;
-  padding: 8px 10px;
-  border: 1px solid rgba(232, 240, 255, 0.18);
-  background: rgba(12, 15, 20, 0.6);
-  backdrop-filter: blur(6px);
-  min-width: 140px;
-  display: none; /* 默认隐藏，使用新的player-weapon-info */
-}
-
-.player-stats-title {
-  font-weight: bold;
-  color: #6bff95;
-  margin-bottom: 6px;
-  font-size: 13px;
-}
-
-.player-stats-item {
-  font-size: 11px;
-  color: rgba(232, 240, 255, 0.85);
-  margin-bottom: 3px;
-  line-height: 1.4;
-}
-
-.player-stats-item:last-child {
-  margin-bottom: 0;
-}
+/* 主武器信息现在在canvas中渲染，不再使用DOM元素 */
 
 /* 怪物图鉴 */
 #bestiary {

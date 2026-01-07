@@ -62,8 +62,6 @@ export class BattleScene extends Phaser.Scene {
 
   private pausedForLevelUp = false
   private skillUi: Phaser.GameObjects.Container | null = null
-  private playerStatsVisible = true  // 主武器信息显示状态
-
   private skills = new SkillSystem()
   private skillPool = new SkillPool()
   private cds = new Map<MainSkillId, number>()
@@ -2196,11 +2194,9 @@ export class BattleScene extends Phaser.Scene {
       setText('hud-wave', `${this.currentWave}/${this.maxWaves}`)
     }
     
-    // 更新人物属性（主武器信息）
-    this.updatePlayerStats()
-    
     // 更新怪物图鉴（显示当前波次下的实际属性）
     this.updateBestiary()
+    // 注意：主武器信息现在通过 drawWeaponInfo() 在canvas中渲染
   }
 
   /**

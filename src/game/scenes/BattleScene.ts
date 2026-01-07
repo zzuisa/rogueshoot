@@ -505,7 +505,8 @@ export class BattleScene extends Phaser.Scene {
     const baseInterval = zombiesCount > 0 ? waveDurationSec / zombiesCount : 0.9
     
     // 设置下限和上限，避免过快或过慢
-    const minInterval = 0.3 // 最快0.3秒生成一个
+    // 无尽模式下提高下限，避免怪物生成过快
+    const minInterval = this.endlessMode ? 0.5 : 0.3 // 无尽模式最快0.5秒生成一个，正常模式0.3秒
     const maxInterval = 0.9  // 最慢0.9秒生成一个
     const clampedInterval = Phaser.Math.Clamp(baseInterval, minInterval, maxInterval)
     

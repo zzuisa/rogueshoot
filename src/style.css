@@ -228,6 +228,29 @@ canvas {
   overflow: visible; /* 不滚动，铺开显示 */
 }
 
+/* 移动端技能栏调整 */
+@media screen and (max-width: 768px) {
+  #skills-bar {
+    right: 4px;
+    top: 50px; /* 移动端怪物图鉴更小，调整位置 */
+    width: 140px;
+    padding: 4px;
+    font-size: 10px;
+    max-height: calc(100vh - 60px); /* 避免超出屏幕 */
+  }
+}
+
+@media screen and (max-width: 480px) {
+  #skills-bar {
+    right: 2px;
+    top: 45px;
+    width: 120px;
+    padding: 3px;
+    font-size: 9px;
+    max-height: calc(100vh - 50px);
+  }
+}
+
 .skills-bar-title {
   font-size: 14px;
   font-weight: bold;
@@ -421,10 +444,10 @@ canvas {
     font-size: 9px;
   }
 
-  /* 技能状态栏：移到左下角，缩小尺寸，限制高度 */
+  /* 技能状态栏：保持在右上角，怪物图鉴下方，缩小尺寸 */
   #skills-bar {
-    left: 4px;
-    bottom: 4px;
+    right: 4px;
+    top: 55px; /* 与桌面端保持一致，在怪物图鉴下方 */
     width: 140px;
     max-height: 200px;
     padding: 4px;
@@ -493,8 +516,8 @@ canvas {
   }
 
   #skills-bar {
-    top: 2px;
     right: 2px;
+    top: 50px; /* 横屏时也在怪物图鉴下方 */
     width: 120px;
     max-height: calc(100vh - 24px);
   }

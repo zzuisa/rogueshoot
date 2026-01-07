@@ -2319,39 +2319,46 @@ export class BattleScene extends Phaser.Scene {
   }
   
   /**
-   * 在canvas内绘制伤害统计（左下角）
+   * 在canvas内绘制伤害统计（左下角，移动端适配）
    */
   private drawDamageStats() {
     this.damageStatsGfx.clear()
     
     if (this.totalDamage === 0) return
     
+    // 移动端检测
+    const isMobile = this.scale.width <= 768
+    const isSmallMobile = this.scale.width <= 480
+    
     // 按伤害排序
+    const maxItems = isSmallMobile ? 5 : (isMobile ? 6 : 8)
     const sorted = Array.from(this.damageStats.entries())
       .sort((a, b) => b[1] - a[1])
-      .slice(0, 8) // 只显示前8名
+      .slice(0, maxItems)
     
     if (sorted.length === 0) return
     
-    const x = 12
-    let y = this.scale.height - 12
-    const lineHeight = 14
-    const fontSize = 9
-    const itemWidth = 160
-    const itemHeight = sorted.length * lineHeight + 20
+    // 根据屏幕尺寸调整参数
+    const x = isMobile ? 4 : 12
+    let y = this.scale.height - (isMobile ? 4 : 12)
+    const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
+    const fontSize = isSmallMobile ? 7 : (isMobile ? 8 : 9)
+    const itemWidth = isSmallMobile ? 120 : (isMobile ? 140 : 160)
+    const itemHeight = sorted.length * lineHeight + (isMobile ? 16 : 20)
+    const padding = isMobile ? 2 : 4
     
     // 背景（半透明，整体缩放）
     this.damageStatsGfx.fillStyle(0x0c0f14, 0.7)
-    this.damageStatsGfx.fillRoundedRect(x - 4, y - itemHeight, itemWidth, itemHeight, 4)
+    this.damageStatsGfx.fillRoundedRect(x - padding, y - itemHeight, itemWidth, itemHeight, 4)
     this.damageStatsGfx.lineStyle(1, 0xff6b6b, 0.5)
-    this.damageStatsGfx.strokeRoundedRect(x - 4, y - itemHeight, itemWidth, itemHeight, 4)
+    this.damageStatsGfx.strokeRoundedRect(x - padding, y - itemHeight, itemWidth, itemHeight, 4)
     
     // 清理旧文本
     this.damageStatsTexts.forEach(t => t.destroy())
     this.damageStatsTexts = []
     
     // 标题
-    y -= itemHeight - 4
+    y -= itemHeight - padding
     const title = this.add.text(x, y, '伤害统计', {
       fontSize: `${fontSize + 1}px`,
       color: '#ff6b6b',
@@ -2370,9 +2377,11 @@ export class BattleScene extends Phaser.Scene {
       this.damageStatsGfx.fillStyle(0xff6b6b, 0.6)
       this.damageStatsGfx.fillRect(x, y - lineHeight + 2, 2, lineHeight - 2)
       
-      // 文本
-      const text = `${source} ${damageText} ${percent}%`
-      const textObj = this.add.text(x + 6, y, text, {
+      // 文本（移动端简化显示）
+      const text = isSmallMobile 
+        ? `${source} ${percent}%`  // 小屏幕只显示名称和百分比
+        : `${source} ${damageText} ${percent}%`
+      const textObj = this.add.text(x + (isMobile ? 4 : 6), y, text, {
         fontSize: `${fontSize}px`,
         color: '#e8f0ff',
         fontFamily: 'monospace',

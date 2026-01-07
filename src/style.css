@@ -474,8 +474,8 @@ canvas {
   #skills-bar {
     right: 2px;
     top: 50px; /* 横屏时也在怪物图鉴下方 */
-    width: 180px; /* 与怪物图鉴宽度一致 */
-    max-height: calc(100vh - 24px);
+    max-width: 180px; /* 与怪物图鉴宽度一致 */
+    max-height: calc(100vh - 4px); /* 与怪物图鉴一致 */
   }
 
   .version-info {

@@ -345,24 +345,6 @@ canvas {
     display: none; /* 移动端隐藏提示文字 */
   }
 
-  /* 人物属性（移动端） */
-  #player-stats {
-    left: 4px;
-    top: 100px; /* 移动端也向下移动 */
-    font-size: 10px;
-    padding: 6px 8px;
-    min-width: 120px;
-  }
-
-  .player-stats-title {
-    font-size: 11px;
-    margin-bottom: 4px;
-  }
-
-  .player-stats-item {
-    font-size: 10px;
-    margin-bottom: 2px;
-  }
 
   /* 怪物图鉴：移到右上角，缩小尺寸，默认折叠 */
   #bestiary {

@@ -1492,16 +1492,19 @@ export class BattleScene extends Phaser.Scene {
     if (this.endlessMode) {
       // 无尽模式：限制增长，避免指数爆炸
       // 前20波：正常增长
-      // 20波后：每5波增加1个（更平缓的增长）
+      // 20波后：每10波增加1个（更平缓的增长），并设置上限
       if (this.currentWave <= this.maxWaves) {
         const increase = Math.floor((this.currentWave - 1) * 0.5) // 每波增加0.5个（向下取整）
         return base + increase
       } else {
-        // 20波后：每5波增加1个
+        // 20波后：每10波增加1个（更慢的增长）
         const extraWaves = this.currentWave - this.maxWaves
-        const extraIncrease = Math.floor(extraWaves / 5) // 每5波增加1个
+        const extraIncrease = Math.floor(extraWaves / 10) // 每10波增加1个
         const baseAt20 = base + Math.floor((this.maxWaves - 1) * 0.5)
-        return baseAt20 + extraIncrease
+        const total = baseAt20 + extraIncrease
+        // 设置上限：最多50个怪物，避免铺满屏幕
+        const maxZombies = 50
+        return Math.min(total, maxZombies)
       }
     } else {
       // 正常模式：每波增加0.5个（向下取整）

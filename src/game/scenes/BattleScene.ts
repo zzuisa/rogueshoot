@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { Player } from '../entities/Player'
 import { Zombie } from '../entities/Zombie'
 import { Bullet } from '../entities/Bullet'
+import { SecondaryBullet } from '../entities/SecondaryBullet'
 import { Tornado } from '../entities/Tornado'
 import { EnemyShot } from '../entities/EnemyShot'
 import { ZOMBIE_TYPES, type ZombieKind } from '../entities/zombieTypes'
@@ -20,6 +21,7 @@ export class BattleScene extends Phaser.Scene {
   private player!: Player
   private zombies: Zombie[] = []
   private bullets: Bullet[] = []
+  private secondaryBullets: SecondaryBullet[] = []
   private tornados: Tornado[] = []
   
   /** 手动选择的目标（点击鼠标时设置，优先攻击此目标） */
@@ -426,6 +428,10 @@ export class BattleScene extends Phaser.Scene {
         const dmg = b.damage * hit.getDamageTakenMult(this.timeAliveSec)
         this.recordDamage('主武器', dmg)
         hit.takeDamage(dmg)
+        
+        // 子弹分裂逻辑
+        this.spawnBulletSplit(b, hit.x, hit.y)
+        
         b.destroy()
         continue
       }
@@ -437,6 +443,60 @@ export class BattleScene extends Phaser.Scene {
       keepB.push(b)
     }
     this.bullets = keepB
+
+    // 更新次级子弹
+    for (const sb of this.secondaryBullets) sb.update(dtSec)
+    const keepSB: SecondaryBullet[] = []
+    for (const sb of this.secondaryBullets) {
+      if (sb.isOutOfRange()) {
+        sb.destroy()
+        continue
+      }
+      
+      // 次级子弹碰撞检测
+      const hitRadius = 10
+      let hit: Zombie | null = null
+      
+      for (const z of this.zombies) {
+        if (z.hp <= 0 || !z.isAlive()) continue
+        
+        const d = Math.hypot(z.x - sb.x, z.y - sb.y)
+        if (d <= hitRadius) {
+          hit = z
+          break
+        }
+        
+        // 连续碰撞检测
+        const prev = sb.prevPosition
+        const dist = Math.hypot(sb.x - prev.x, sb.y - prev.y)
+        if (dist > 0.1) {
+          const pointToLineDist = this.pointToLineSegmentDistance(
+            z.x, z.y,
+            prev.x, prev.y,
+            sb.x, sb.y
+          )
+          if (pointToLineDist <= hitRadius) {
+            hit = z
+            break
+          }
+        }
+      }
+      
+      if (hit) {
+        const dmg = sb.damage * hit.getDamageTakenMult(this.timeAliveSec)
+        this.recordDamage('主武器', dmg)
+        hit.takeDamage(dmg)
+        sb.destroy()
+        continue
+      }
+      
+      if (sb.x < -30 || sb.x > this.scale.width + 30 || sb.y < -40 || sb.y > this.scale.height + 40) {
+        sb.destroy()
+        continue
+      }
+      keepSB.push(sb)
+    }
+    this.secondaryBullets = keepSB
 
     // enemy shots -> hit defense line
     for (const s of this.enemyShots) s.update(dtSec)
@@ -2938,6 +2998,70 @@ export class BattleScene extends Phaser.Scene {
     }
     
     updateTrail()
+  }
+
+  /**
+   * 生成子弹分裂（当子弹命中敌人时）
+   */
+  private spawnBulletSplit(bullet: Bullet, hitX: number, hitY: number) {
+    const split2Count = this.skills.split2Count
+    const split4Count = this.skills.split4Count
+    
+    // 分裂成2发（1->2）
+    if (split2Count > 0) {
+      for (let i = 0; i < split2Count; i++) {
+        // 计算分裂角度：垂直于原子弹方向，左右各一发
+        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
+        const splitAngle = baseAngle + (i === 0 ? -Math.PI / 2 : Math.PI / 2) + (Math.random() - 0.5) * 0.3
+        const speed = 100  // 次级子弹速度稍慢
+        const vx = Math.cos(splitAngle) * speed
+        const vy = Math.sin(splitAngle) * speed
+        
+        // 次级子弹伤害继承主子弹的60%
+        const secondaryDamage = bullet.damage * 0.6
+        
+        this.secondaryBullets.push(
+          new SecondaryBullet(this, {
+            x: hitX,
+            y: hitY,
+            vx,
+            vy,
+            damage: secondaryDamage,
+            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
+            parent: bullet,
+            splitLevel: 0,
+          })
+        )
+      }
+    }
+    
+    // 分裂成4发（1->4）
+    if (split4Count > 0) {
+      for (let i = 0; i < split4Count; i++) {
+        // 计算分裂角度：均匀分布在360度
+        const baseAngle = Math.atan2(bullet.vy, bullet.vx)
+        const splitAngle = baseAngle + (Math.PI * 2 / 4) * i + (Math.random() - 0.5) * 0.2
+        const speed = 100  // 次级子弹速度稍慢
+        const vx = Math.cos(splitAngle) * speed
+        const vy = Math.sin(splitAngle) * speed
+        
+        // 次级子弹伤害继承主子弹的50%（4发时伤害更低）
+        const secondaryDamage = bullet.damage * 0.5
+        
+        this.secondaryBullets.push(
+          new SecondaryBullet(this, {
+            x: hitX,
+            y: hitY,
+            vx,
+            vy,
+            damage: secondaryDamage,
+            maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
+            parent: bullet,
+            splitLevel: 0,
+          })
+        )
+      }
+    }
   }
 
   /**

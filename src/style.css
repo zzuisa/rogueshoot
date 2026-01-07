@@ -111,7 +111,7 @@ canvas {
 #player-stats {
   position: fixed;
   left: 12px;
-  top: 80px;
+  top: 120px; /* 向下移动，避免遮挡HP等信息 */
   z-index: 5; /* 降低层级，避免遮挡技能选择界面 */
   pointer-events: auto; /* 允许点击 */
   font-size: 12px;
@@ -412,7 +412,7 @@ canvas {
   /* 人物属性（移动端） */
   #player-stats {
     left: 4px;
-    top: 60px;
+    top: 100px; /* 移动端也向下移动 */
     font-size: 10px;
     padding: 6px 8px;
     min-width: 120px;

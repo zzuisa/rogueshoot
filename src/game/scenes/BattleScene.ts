@@ -30,8 +30,6 @@ export class BattleScene extends Phaser.Scene {
 
   private rangeGfx!: Phaser.GameObjects.Graphics
   private skillRangeGfx!: Phaser.GameObjects.Graphics  // 技能范围显示图形
-  private damageStatsGfx!: Phaser.GameObjects.Graphics  // 伤害统计图形（canvas内）
-  private damageStatsTexts: Phaser.GameObjects.Text[] = []  // 伤害统计文本对象
 
   private readonly defenseLineY = 520
 
@@ -106,9 +104,6 @@ export class BattleScene extends Phaser.Scene {
     this.skillRangeGfx = this.add.graphics()
     this.skillRangeGfx.setVisible(false)
     
-    // 伤害统计图形（canvas内渲染）
-    this.damageStatsGfx = this.add.graphics()
-    this.damageStatsGfx.setDepth(1000) // 确保在最上层
 
     // 鼠标/触摸点击事件：选择距离点击位置最近的敌人作为目标
     // 移动端和桌面端都支持
@@ -158,8 +153,8 @@ export class BattleScene extends Phaser.Scene {
     this.stepCombat(dtSec)
     this.stepSkills(dtSec)
     
-    // 绘制伤害统计（canvas内）
-    this.drawDamageStats()
+    // 更新伤害统计（DOM方式）
+    this.updateDamageStats()
   }
 
   private stepPlayer(dtSec: number) {
@@ -2308,10 +2303,40 @@ export class BattleScene extends Phaser.Scene {
   private damageStatsUpdateTimer: Phaser.Time.TimerEvent | null = null
 
   /**
-   * 更新伤害统计显示（DOM方式，保留用于初始化）
+   * 更新伤害统计显示（DOM方式）
    */
   private updateDamageStats() {
-    // 不再更新DOM，改为canvas渲染
+    const damageStatsList = document.getElementById('damage-stats-list')
+    if (!damageStatsList) return
+    
+    if (this.totalDamage === 0) {
+      damageStatsList.innerHTML = ''
+      return
+    }
+    
+    // 按伤害排序
+    const sorted = Array.from(this.damageStats.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8) // 最多显示8项
+    
+    if (sorted.length === 0) {
+      damageStatsList.innerHTML = ''
+      return
+    }
+    
+    // 更新DOM
+    damageStatsList.innerHTML = sorted.map(([source, damage]) => {
+      const percent = ((damage / this.totalDamage) * 100).toFixed(1)
+      const damageText = damage >= 1000 ? `${(damage / 1000).toFixed(1)}k` : Math.floor(damage).toString()
+      
+      return `
+        <div class="damage-stats-item">
+          <span class="damage-stats-item-name">${source}</span>
+          <span class="damage-stats-item-damage">${damageText}</span>
+          <span class="damage-stats-item-percent">${percent}%</span>
+        </div>
+      `
+    }).join('')
   }
   
   /**

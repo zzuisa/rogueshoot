@@ -178,8 +178,8 @@ canvas {
 @media screen and (max-width: 768px) {
   #skills-bar {
     right: 4px;
-    top: 50px; /* 移动端怪物图鉴更小，调整位置 */
-    width: 140px;
+    top: 20px; /* 移动端怪物图鉴更小，调整位置 */
+    width: 80px;
     padding: 4px;
     font-size: 10px;
     max-height: calc(100vh - 60px); /* 避免超出屏幕 */

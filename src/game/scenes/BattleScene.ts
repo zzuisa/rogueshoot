@@ -37,10 +37,6 @@ export class BattleScene extends Phaser.Scene {
   private weaponInfoGfx!: Phaser.GameObjects.Graphics
   private weaponInfoTexts: Phaser.GameObjects.Text[] = []
   
-  // 已选技能框（canvas内渲染，深度999，低于技能选择界面1000）
-  private skillsBarGfx!: Phaser.GameObjects.Graphics
-  private skillsBarTexts: Phaser.GameObjects.Text[] = []
-  private skillsBarZones: Phaser.GameObjects.Zone[] = [] // 用于交互的区域
 
   private spawnTimer = 0
   private spawnIntervalSec = 0.9
@@ -111,10 +107,6 @@ export class BattleScene extends Phaser.Scene {
     this.skillRangeGfx = this.add.graphics()
     this.skillRangeGfx.setVisible(false)
     
-    // 已选技能框图形（canvas内渲染，深度999，低于技能选择界面1000）
-    this.skillsBarGfx = this.add.graphics()
-    this.skillsBarGfx.setDepth(999) // 确保低于技能选择界面（1000）
-    
     // 主武器信息图形（canvas内渲染，深度999，低于技能选择界面1000）
     this.weaponInfoGfx = this.add.graphics()
     this.weaponInfoGfx.setDepth(999) // 确保低于技能选择界面（1000）
@@ -167,11 +159,8 @@ export class BattleScene extends Phaser.Scene {
     this.stepCombat(dtSec)
     this.stepSkills(dtSec)
     
-    // 绘制主武器信息（canvas内，深度999）
+    // 绘制主武器信息（canvas内，深度999，常显示，无边框）
     this.drawWeaponInfo()
-    
-    // 绘制已选技能框（canvas内，深度999）
-    this.drawSkillsBar()
     
     // 更新伤害统计（DOM方式）
     this.updateDamageStats()

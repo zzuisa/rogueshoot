@@ -163,6 +163,10 @@ export class BattleScene extends Phaser.Scene {
     this.stepPlayer(dtSec)
     this.stepCombat(dtSec)
     this.stepSkills(dtSec)
+    
+    // 绘制主武器信息和伤害统计（canvas内）
+    this.drawWeaponInfo()
+    this.drawDamageStats()
   }
 
   private stepPlayer(dtSec: number) {
@@ -1378,7 +1382,7 @@ export class BattleScene extends Phaser.Scene {
         overlay.destroy(true)
         this.skillUi = null
         this.updateSkillsBar() // 更新技能状态栏
-        this.updatePlayerStats() // 更新人物属性（会恢复显示）
+        // 注意：主武器信息现在通过 drawWeaponInfo() 在canvas中渲染，不再使用DOM方式
         
         // 恢复主武器信息显示（如果之前是显示的）
         const playerStatsEl = document.getElementById('player-stats')
@@ -2195,8 +2199,7 @@ export class BattleScene extends Phaser.Scene {
       setText('hud-wave', `${this.currentWave}/${this.maxWaves}`)
     }
     
-    // 更新人物属性（主武器信息）
-    this.updatePlayerStats()
+    // 注意：主武器信息现在通过 drawWeaponInfo() 在canvas中渲染，不再使用DOM方式
     
     // 更新怪物图鉴（显示当前波次下的实际属性）
     this.updateBestiary()
@@ -2393,23 +2396,81 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 更新主武器信息显示（左上角）
+   * 在canvas内绘制主武器信息（左上角，向下偏移避免遮挡HP）
    */
-  private updatePlayerWeaponInfo() {
-    const weaponInfoEl = document.getElementById('player-weapon-info')
-    if (!weaponInfoEl) return
-
+  private drawWeaponInfo() {
+    this.weaponInfoGfx.clear()
+    
     const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
     const bulletCount = this.skills.bulletCount
     const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
     const damage = this.player.damage
-
-    weaponInfoEl.innerHTML = `
-      <div class="player-weapon-title">主武器</div>
-      <div class="player-weapon-item">散射: Lv.${bulletSpreadLevel} (${spreadDeg}°)</div>
-      <div class="player-weapon-item">连发: ${bulletCount}</div>
-      <div class="player-weapon-item">伤害: ${damage}</div>
-    `
+    
+    // 移动端检测
+    const isMobile = this.scale.width <= 768
+    const isSmallMobile = this.scale.width <= 480
+    
+    // 根据屏幕尺寸调整参数
+    const x = isMobile ? 4 : 12
+    // 向下偏移，避免遮挡HP等信息（HP在top: 12px，主武器信息向下偏移约60px）
+    const yOffset = isMobile ? 50 : 60
+    let y = yOffset
+    const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
+    const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
+    const itemWidth = isSmallMobile ? 120 : (isMobile ? 140 : 160)
+    const padding = isMobile ? 2 : 4
+    
+    // 计算内容高度
+    const itemHeight = 4 * lineHeight + padding * 2 + (isMobile ? 16 : 20)
+    
+    // 背景（半透明）
+    this.weaponInfoGfx.fillStyle(0x0c0f14, 0.7)
+    this.weaponInfoGfx.fillRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
+    this.weaponInfoGfx.lineStyle(1, 0x6bffea, 0.5)
+    this.weaponInfoGfx.strokeRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
+    
+    // 清理旧文本
+    this.weaponInfoTexts.forEach(t => t.destroy())
+    this.weaponInfoTexts = []
+    
+    // 标题
+    const title = this.add.text(x, y, '主武器', {
+      fontSize: `${fontSize + 1}px`,
+      color: '#6bffea',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0).setDepth(1001)
+    this.weaponInfoTexts.push(title)
+    y += lineHeight + 2
+    
+    // 散射信息
+    const spreadText = `散射: Lv.${bulletSpreadLevel} (${spreadDeg}°)`
+    const spreadObj = this.add.text(x, y, spreadText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(1001)
+    this.weaponInfoTexts.push(spreadObj)
+    y += lineHeight
+    
+    // 连发信息
+    const countText = `连发: ${bulletCount}`
+    const countObj = this.add.text(x, y, countText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(1001)
+    this.weaponInfoTexts.push(countObj)
+    y += lineHeight
+    
+    // 伤害信息
+    const damageText = `伤害: ${damage}`
+    const damageObj = this.add.text(x, y, damageText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(1001)
+    this.weaponInfoTexts.push(damageObj)
   }
 
   /**

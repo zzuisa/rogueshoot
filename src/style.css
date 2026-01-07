@@ -148,7 +148,17 @@ canvas {
   top: 12px;
   z-index: 10;
   font-size: 12px;
-  max-width: 200px;
+  max-width: 280px; /* 加宽：从200px增加到280px */
+  max-height: calc(100vh - 24px); /* 限制最大高度 */
+  overflow-y: auto; /* 允许滚动 */
+  overflow-x: hidden; /* 隐藏横向滚动条 */
+  scrollbar-width: none; /* Firefox: 隐藏滚动条 */
+  -ms-overflow-style: none; /* IE/Edge: 隐藏滚动条 */
+}
+
+/* Webkit浏览器（Chrome/Safari）: 隐藏滚动条但保持滚动功能 */
+#bestiary::-webkit-scrollbar {
+  display: none;
 }
 
 .bestiary-title {
@@ -422,8 +432,9 @@ canvas {
   #bestiary {
     right: 4px;
     top: 4px;
-    max-width: 140px;
+    max-width: 200px; /* 移动端也加宽：从140px增加到200px */
     font-size: 10px;
+    max-height: calc(100vh - 8px);
   }
 
   .bestiary-title {
@@ -444,15 +455,6 @@ canvas {
     font-size: 9px;
   }
 
-  /* 技能状态栏：保持在右上角，怪物图鉴下方，缩小尺寸 */
-  #skills-bar {
-    right: 4px;
-    top: 55px; /* 与桌面端保持一致，在怪物图鉴下方 */
-    width: 140px;
-    max-height: 200px;
-    padding: 4px;
-    font-size: 10px;
-  }
 
   .skills-bar-title {
     font-size: 11px;
@@ -485,8 +487,9 @@ canvas {
 
   /* 进一步缩小怪物图鉴和技能栏 */
   #bestiary {
-    max-width: 120px;
+    max-width: 160px; /* 小屏移动端也加宽：从120px增加到160px */
     font-size: 9px;
+    max-height: calc(100vh - 8px);
   }
 
   .bestiary-title {
@@ -512,7 +515,8 @@ canvas {
   #bestiary {
     top: 2px;
     right: 2px;
-    max-width: 120px;
+    max-width: 180px; /* 横屏模式也加宽 */
+    max-height: calc(100vh - 4px);
   }
 
   #skills-bar {

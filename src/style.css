@@ -210,33 +210,21 @@ canvas {
   }
 }
 
-@media screen and (max-width: 480px) {
-  #skills-bar {
-    right: 2px;
-    top: 25px;
-    width: 60px;
-    padding: 3px;
-    font-size: 9px;
-    max-height: calc(100vh - 50px);
-  }
-}
-
 .skills-bar-title {
-  font-size: 14px;
   font-weight: bold;
   margin-bottom: 8px;
-  text-align: center;
-  color: #a9c1ff;
-  cursor: pointer;
-  user-select: none;
-  transition: color 0.2s;
   padding: 6px 10px;
   border: 1px solid rgba(232, 240, 255, 0.18);
   background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  text-align: center;
+  pointer-events: auto;
+  user-select: none;
+  cursor: pointer;
+  font-size: 12px; /* 与怪物图鉴标题一致（通过继承#skills-bar的font-size） */
 }
 
 .skills-bar-title:hover {
-  color: #c9d9ff;
   background: rgba(12, 15, 20, 0.8);
 }
 

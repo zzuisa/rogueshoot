@@ -23,6 +23,12 @@ app.innerHTML = `
     向僵尸开炮！
     </div>
   </div>
+  <div id="player-weapon-info" class="player-weapon-info">
+    <div class="player-weapon-title">主武器</div>
+    <div class="player-weapon-item">散射: Lv.0</div>
+    <div class="player-weapon-item">连发: 1</div>
+    <div class="player-weapon-item">伤害: 5</div>
+  </div>
   <div id="player-stats" style="display: none;">
     <div class="player-stats-title">主武器</div>
     <div class="player-stats-item">子弹散射: Lv.0</div>
@@ -32,10 +38,15 @@ app.innerHTML = `
     <div class="bestiary-list" id="bestiary-list"></div>
   </div>
   <div id="skills-bar">
-    <div class="skills-bar-title">已选技能</div>
+    <div class="skills-bar-title" id="skills-bar-toggle">已选技能 ▼</div>
     <div class="skills-bar-list" id="skills-bar-list"></div>
   </div>
+  <div id="damage-stats" class="damage-stats">
+    <div class="damage-stats-title">伤害统计</div>
+    <div class="damage-stats-list" id="damage-stats-list"></div>
+  </div>
   <button id="crazy-mode-btn" class="crazy-mode-btn">疯狂模式 OFF</button>
+  <div id="version-info" class="version-info"></div>
 `
 
 // 生成怪物图鉴
@@ -69,6 +80,31 @@ if (bestiaryListEl) {
 
 // 启动游戏（渲染到 #game-root 容器）
 startGame('game-root')
+
+// 技能栏点击隐藏/显示（放在怪物图鉴正下方，默认折叠，使用绝对位置）
+const skillsBarToggle = document.getElementById('skills-bar-toggle')
+const skillsBarList = document.getElementById('skills-bar-list')
+if (skillsBarToggle && skillsBarList) {
+  // 默认折叠
+  let isExpanded = false
+  
+  const toggleSkillsBar = () => {
+    isExpanded = !isExpanded
+    if (isExpanded) {
+      skillsBarList.classList.remove('collapsed')
+      skillsBarToggle.textContent = '已选技能 ▼'
+    } else {
+      skillsBarList.classList.add('collapsed')
+      skillsBarToggle.textContent = '已选技能 ▶'
+    }
+  }
+  
+  skillsBarToggle.addEventListener('click', toggleSkillsBar)
+  
+  // 初始化状态（默认折叠）
+  skillsBarList.classList.add('collapsed')
+  skillsBarToggle.textContent = '已选技能 ▶'
+}
 
 // 怪物图鉴点击隐藏/显示
 const bestiaryToggle = document.getElementById('bestiary-toggle')
@@ -140,3 +176,26 @@ if (crazyModeBtn) {
   
   setupCrazyMode()
 }
+
+// 加载并显示版本信息
+const loadVersionInfo = async () => {
+  try {
+    const response = await fetch('/version.json')
+    if (response.ok) {
+      const versionInfo = await response.json()
+      const versionEl = document.getElementById('version-info')
+      if (versionEl) {
+        versionEl.textContent = `v${versionInfo.version} | ${versionInfo.buildTimeLocal}`
+      }
+    }
+  } catch (error) {
+    // 如果无法加载版本信息，显示默认值
+    const versionEl = document.getElementById('version-info')
+    if (versionEl) {
+      versionEl.textContent = 'v1.0.0 | 开发模式'
+    }
+  }
+}
+
+// 页面加载后显示版本信息
+loadVersionInfo()

@@ -1,11 +1,18 @@
 {
   "name": "zombies",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.17",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "./deploy.sh patch bump-only && tsc && vite build && ./deploy.sh patch deploy-only",
+    "build:only": "tsc && vite build",
+    "build:minor": "./deploy.sh minor bump-only && tsc && vite build && ./deploy.sh minor deploy-only",
+    "build:major": "./deploy.sh major bump-only && tsc && vite build && ./deploy.sh major deploy-only",
+    "deploy": "./deploy.sh patch",
+    "deploy:patch": "./deploy.sh patch",
+    "deploy:minor": "./deploy.sh minor",
+    "deploy:major": "./deploy.sh major",
     "preview": "vite preview"
   },
   "devDependencies": {

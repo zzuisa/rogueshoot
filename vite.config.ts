@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite'
+import { versionPlugin } from './vite-plugin-version'
 
 export default defineConfig({
+  plugins: [versionPlugin()],
   server: {
     host: '0.0.0.0', // 允许外网访问
     port: 5173, // 默认端口

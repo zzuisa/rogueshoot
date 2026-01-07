@@ -3,7 +3,7 @@ server {
     server_name your-domain.com;  # 替换为你的域名或IP
     
     # 网站根目录（指向dist目录）
-    root /var/www/zombies/dist;
+    root /usr/share/nginx/zombies/dist;
     index index.html;
     
     # 启用gzip压缩

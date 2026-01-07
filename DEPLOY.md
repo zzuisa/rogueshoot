@@ -12,10 +12,14 @@ npm run build
 
 ## 2. 上传文件到服务器
 
-将 `dist/` 目录中的所有文件上传到服务器的网站目录，例如：
-- `/var/www/zombies/dist/`
-- `/usr/share/nginx/html/`
-- 或其他你选择的目录
+将 `dist/` 目录中的所有文件上传到服务器的网站目录：
+
+```bash
+# 使用 scp 或其他方式上传文件
+scp -r dist/* user@server:/usr/share/nginx/zombies/dist/
+```
+
+部署路径：`/usr/share/nginx/zombies/dist/`
 
 ## 3. 配置 Nginx
 
@@ -48,7 +52,7 @@ server {
     listen 80;
     server_name your-domain.com;
     
-    root /var/www/zombies/dist;
+    root /usr/share/nginx/zombies/dist;
     index index.html;
     
     location / {
@@ -62,8 +66,8 @@ server {
 确保 Nginx 可以读取文件：
 
 ```bash
-sudo chown -R www-data:www-data /var/www/zombies/dist
-sudo chmod -R 755 /var/www/zombies/dist
+sudo chown -R www-data:www-data /usr/share/nginx/zombies/dist
+sudo chmod -R 755 /usr/share/nginx/zombies/dist
 ```
 
 ## 5. 验证部署

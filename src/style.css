@@ -74,19 +74,53 @@ canvas {
   opacity: 0.85;
 }
 
-/* 人物属性（主武器信息） */
-#player-stats {
+/* 主武器信息（左上角常显示） */
+#player-weapon-info {
   position: fixed;
   left: 12px;
-  top: 80px;
+  top: 12px;
   z-index: 10;
-  pointer-events: none;
+  pointer-events: none; /* 不阻挡交互 */
   font-size: 12px;
   padding: 8px 10px;
   border: 1px solid rgba(232, 240, 255, 0.18);
   background: rgba(12, 15, 20, 0.6);
   backdrop-filter: blur(6px);
   min-width: 140px;
+}
+
+.player-weapon-title {
+  font-weight: bold;
+  color: #6bff95;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.player-weapon-item {
+  font-size: 11px;
+  color: rgba(232, 240, 255, 0.85);
+  margin-bottom: 3px;
+  line-height: 1.4;
+}
+
+.player-weapon-item:last-child {
+  margin-bottom: 0;
+}
+
+/* 人物属性（主武器信息，已废弃，保留兼容） */
+#player-stats {
+  position: fixed;
+  left: 12px;
+  top: 80px;
+  z-index: 5; /* 降低层级，避免遮挡技能选择界面 */
+  pointer-events: auto; /* 允许点击 */
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  min-width: 140px;
+  display: none; /* 默认隐藏，使用新的player-weapon-info */
 }
 
 .player-stats-title {
@@ -177,21 +211,21 @@ canvas {
   margin: 2px 0;
 }
 
-/* 技能状态栏 */
+/* 技能状态栏（右上角，怪物图鉴正下方，默认折叠） */
 #skills-bar {
   position: fixed;
-  left: 12px;
-  bottom: 12px;
+  right: 12px;
+  top: 55px; /* 怪物图鉴标题高度(约35px) + 间距(8px) + top(12px) = 55px */
   z-index: 10;
   width: 200px;
-  max-height: calc(100% - 24px);
-  overflow-y: auto;
   background: rgba(12, 15, 20, 0.6);
   backdrop-filter: blur(6px);
   border: 1px solid rgba(232, 240, 255, 0.18);
   padding: 8px;
   font-size: 12px;
   pointer-events: auto;
+  max-height: calc(100vh - 24px);
+  overflow: visible; /* 不滚动，铺开显示 */
 }
 
 .skills-bar-title {
@@ -200,12 +234,29 @@ canvas {
   margin-bottom: 8px;
   text-align: center;
   color: #a9c1ff;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.2s;
+  padding: 6px 10px;
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  background: rgba(12, 15, 20, 0.6);
+}
+
+.skills-bar-title:hover {
+  color: #c9d9ff;
+  background: rgba(12, 15, 20, 0.8);
 }
 
 .skills-bar-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  max-height: none; /* 不限制高度，铺开显示 */
+  overflow: visible; /* 不滚动 */
+}
+
+.skills-bar-list.collapsed {
+  display: none; /* 折叠时隐藏 */
 }
 
 .skill-item {
@@ -442,9 +493,98 @@ canvas {
   }
 
   #skills-bar {
-    bottom: 2px;
-    left: 2px;
+    top: 2px;
+    right: 2px;
     width: 120px;
-    max-height: 120px;
+    max-height: calc(100vh - 24px);
   }
+
+  .version-info {
+    font-size: 8px;
+    padding: 2px 4px;
+  }
+}
+
+/* 伤害统计系统（左下角，整体缩放） */
+#damage-stats {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 10;
+  width: 160px;
+  background: rgba(12, 15, 20, 0.6);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(232, 240, 255, 0.18);
+  padding: 6px;
+  font-size: 10px;
+  pointer-events: none; /* 不阻挡交互 */
+  transform: scale(0.85); /* 整体缩放 */
+  transform-origin: left bottom;
+}
+
+.damage-stats-title {
+  font-size: 11px;
+  font-weight: bold;
+  margin-bottom: 4px;
+  color: #ff6b6b;
+}
+
+.damage-stats-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.damage-stats-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 2px 4px;
+  background: rgba(12, 15, 20, 0.4);
+  border-left: 2px solid #ff6b6b;
+  font-size: 9px;
+  color: rgba(232, 240, 255, 0.85);
+  line-height: 1.2;
+}
+
+.damage-stats-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.damage-stats-item-damage {
+  font-size: 8px;
+  color: rgba(232, 240, 255, 0.7);
+  margin-right: 4px;
+}
+
+.damage-stats-item-percent {
+  font-weight: bold;
+  color: #ff6b6b;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+/* 版本信息 */
+.version-info {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 1; /* 降低层级，可以被其他UI覆盖 */
+  padding: 3px 6px;
+  background: rgba(12, 15, 20, 0.7);
+  color: rgba(232, 240, 255, 0.6);
+  font-family: monospace;
+  font-size: 8px; /* 字体调小 */
+  user-select: none;
+  backdrop-filter: blur(4px);
+  border-radius: 4px;
+  border: 1px solid rgba(107, 255, 234, 0.2);
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none; /* 不阻挡其他UI的交互 */
 }

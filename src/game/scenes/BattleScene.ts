@@ -2258,44 +2258,6 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 更新人物属性显示（主武器增强信息）
-   */
-  private updatePlayerStats() {
-    const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
-    const bulletCount = this.skills.bulletCount
-    const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
-    
-    const playerStatsEl = document.getElementById('player-stats')
-    if (playerStatsEl) {
-      if (bulletSpreadLevel > 0) {
-        const toggleIcon = this.playerStatsVisible ? '▼' : '▶'
-        playerStatsEl.innerHTML = `
-          <div class="player-stats-title" id="player-stats-toggle" style="cursor: pointer; user-select: none;">
-            主武器 ${toggleIcon}
-          </div>
-          <div id="player-stats-content" style="display: ${this.playerStatsVisible ? 'block' : 'none'};">
-            <div class="player-stats-item">子弹散射: Lv.${bulletSpreadLevel}</div>
-            <div class="player-stats-item">子弹数: ${bulletCount}</div>
-            <div class="player-stats-item">散射角: ${spreadDeg}°</div>
-          </div>
-        `
-        playerStatsEl.style.display = 'block'
-        
-        // 绑定点击事件（如果还没有绑定）
-        const toggleEl = document.getElementById('player-stats-toggle')
-        if (toggleEl && !toggleEl.hasAttribute('data-bound')) {
-          toggleEl.setAttribute('data-bound', 'true')
-          toggleEl.addEventListener('click', () => {
-            this.togglePlayerStats()
-          })
-        }
-      } else {
-        playerStatsEl.style.display = 'none'
-      }
-    }
-  }
-
-  /**
    * 在canvas内绘制主武器信息（左上角，深度999，低于技能选择界面1000）
    */
   private drawWeaponInfo() {
@@ -2425,24 +2387,6 @@ export class BattleScene extends Phaser.Scene {
     }).join('')
   }
   
-  /**
-   * 切换主武器信息显示/隐藏
-   */
-  togglePlayerStats() {
-    this.playerStatsVisible = !this.playerStatsVisible
-    const contentEl = document.getElementById('player-stats-content')
-    const toggleEl = document.getElementById('player-stats-toggle')
-    
-    if (contentEl) {
-      contentEl.style.display = this.playerStatsVisible ? 'block' : 'none'
-    }
-    
-    if (toggleEl) {
-      const toggleIcon = this.playerStatsVisible ? '▼' : '▶'
-      toggleEl.textContent = `主武器 ${toggleIcon}`
-    }
-  }
-
   /**
    * 获取技能的当前属性信息
    */

@@ -9,6 +9,11 @@
 /** 主技能ID类型：所有可直接解锁的核心技能 */
 export type MainSkillId =
   | 'bullet_spread'    // 子弹散射
+  | 'weapon_rapid_fire'  // 子弹连发
+  | 'weapon_fire_rate'   // 提高射速
+  | 'weapon_damage'      // 子弹增伤
+  | 'weapon_split_2'     // 子弹分裂（1->2）
+  | 'weapon_split_4'     // 子弹分裂（1->4）
   | 'aurora'           // 极光
   | 'tornado'           // 龙卷风
   | 'thermobaric'       // 温压弹
@@ -86,6 +91,11 @@ const main = (
  */
 const MAIN_SKILL_NAMES: Record<MainSkillId, string> = {
   bullet_spread: '子弹散射',
+  weapon_rapid_fire: '子弹连发',
+  weapon_fire_rate: '提高射速',
+  weapon_damage: '子弹增伤',
+  weapon_split_2: '子弹分裂（1→2）',
+  weapon_split_4: '子弹分裂（1→4）',
   aurora: '极光',
   tornado: '龙卷风',
   thermobaric: '温压弹',
@@ -166,7 +176,14 @@ const up = (mainId: MainSkillId, kind: UpgradeKind, name: string, desc?: string,
  */
 export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   // ===== 原有技能（保留兼容） =====
-  bullet_spread: main('bullet_spread', '子弹散射', '发射多发扇形子弹，提高清怪能力。', 1.1, 3),
+  bullet_spread: main('bullet_spread', '子弹散射', '增加弹道数量，每次增加1个弹道。', 1.1, 10),
+  
+  // 武器强化技能
+  weapon_rapid_fire: main('weapon_rapid_fire', '子弹连发', '每次射击射出多发子弹，提高输出频率。每级+1发。', 1.0, 5),
+  weapon_fire_rate: main('weapon_fire_rate', '提高射速', '提高武器射击速度。每级+10%射速。', 1.0, 10),
+  weapon_damage: main('weapon_damage', '子弹增伤', '提高子弹伤害。每级+60%伤害。', 1.0, 5),
+  weapon_split_2: main('weapon_split_2', '子弹分裂（1→2）', '子弹命中敌人后分裂成2发次级子弹。', 0.9, 3),
+  weapon_split_4: main('weapon_split_4', '子弹分裂（1→4）', '子弹命中敌人后分裂成4发次级子弹。', 0.8, 3),
   
   // 极光：垂直光束，宽度14-38px，伤害8-27，冷却4.2-1.2秒
   // 范围：矩形，宽度38px（最大），高度到防线（520px）
@@ -231,11 +248,42 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   // 注意：根据技能特性，不是所有技能都需要所有5种升级类型
   // 只保留对技能有意义的升级选项
   
-  bullet_spread_damage: up('bullet_spread', 'damage', '伤害增强'),
-  bullet_spread_cooldown: up('bullet_spread', 'cooldown', '冷却缩减'),
-  bullet_spread_count: up('bullet_spread', 'count', '数量/次数增加'),
-  bullet_spread_radius: up('bullet_spread', 'radius', '范围扩大'),
-  bullet_spread_duration: up('bullet_spread', 'duration', '持续时间延长'),
+  bullet_spread_damage: up('bullet_spread', 'damage', '伤害增强', '武器强化技能不支持伤害增强。', 0, 0),
+  bullet_spread_cooldown: up('bullet_spread', 'cooldown', '冷却缩减', '武器强化技能不支持冷却缩减。', 0, 0),
+  bullet_spread_count: up('bullet_spread', 'count', '数量/次数增加', '武器强化技能不支持数量增加。', 0, 0),
+  bullet_spread_radius: up('bullet_spread', 'radius', '范围扩大', '武器强化技能不支持范围扩大。', 0, 0),
+  bullet_spread_duration: up('bullet_spread', 'duration', '持续时间延长', '武器强化技能不支持持续时间延长。', 0, 0),
+  
+  // 武器强化技能不支持分支升级（权重为0，不会出现）
+  weapon_rapid_fire_damage: up('weapon_rapid_fire', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_rapid_fire_cooldown: up('weapon_rapid_fire', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_rapid_fire_count: up('weapon_rapid_fire', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_rapid_fire_radius: up('weapon_rapid_fire', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_rapid_fire_duration: up('weapon_rapid_fire', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
+  
+  weapon_fire_rate_damage: up('weapon_fire_rate', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_fire_rate_cooldown: up('weapon_fire_rate', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_fire_rate_count: up('weapon_fire_rate', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_fire_rate_radius: up('weapon_fire_rate', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_fire_rate_duration: up('weapon_fire_rate', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
+  
+  weapon_damage_damage: up('weapon_damage', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_damage_cooldown: up('weapon_damage', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_damage_count: up('weapon_damage', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_damage_radius: up('weapon_damage', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_damage_duration: up('weapon_damage', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
+  
+  weapon_split_2_damage: up('weapon_split_2', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_2_cooldown: up('weapon_split_2', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_2_count: up('weapon_split_2', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_2_radius: up('weapon_split_2', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_2_duration: up('weapon_split_2', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
+  
+  weapon_split_4_damage: up('weapon_split_4', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_4_cooldown: up('weapon_split_4', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_4_count: up('weapon_split_4', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_4_radius: up('weapon_split_4', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_split_4_duration: up('weapon_split_4', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
 
   // 极光：需要伤害、冷却、范围（宽度），不需要数量和持续时间
   aurora_damage: up('aurora', 'damage', '伤害增强', '提升极光的伤害（每级+20%，可叠加）。'),

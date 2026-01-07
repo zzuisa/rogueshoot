@@ -110,24 +110,60 @@ export class SkillSystem {
   // ===== 武器派生属性（用于子弹散射） =====
   
   /**
-   * 子弹散射数量：0级=1发，1级=3发，2级及以上=5发
+   * 子弹散射数量：每次增加1个弹道（而不是1->3->5）
+   * 0级=1发，1级=2发，2级=3发，以此类推
    */
   get bulletCount() {
     const lv = this.getLevel('bullet_spread')
-    if (lv <= 0) return 1
-    if (lv === 1) return 3
-    return 5
+    return 1 + lv  // 每次增加1个
   }
 
   /**
    * 扇形散射角度（弧度）：随散射等级增加
-   * 0级=0（单发），1级=0.28弧度（约16度），2级及以上=0.42弧度（约24度）
+   * 0级=0（单发），1级=0.14弧度（约8度），每级+0.07弧度（约4度）
    */
   get spreadRad() {
     const lv = this.getLevel('bullet_spread')
     if (lv <= 0) return 0
-    if (lv === 1) return 0.28
-    return 0.42
+    return 0.07 * lv  // 每级+0.07弧度
+  }
+
+  // ===== 武器强化属性 =====
+  
+  /**
+   * 子弹连发数量：每次射击射出多发子弹
+   * 每级+1发
+   */
+  get rapidFireCount() {
+    return this.getLevel('weapon_rapid_fire')
+  }
+
+  /**
+   * 射速倍率：每级+10%
+   */
+  get fireRateMult() {
+    return 1 + this.getLevel('weapon_fire_rate') * 0.1
+  }
+
+  /**
+   * 子弹伤害倍率：每级+60%
+   */
+  get weaponDamageMult() {
+    return 1 + this.getLevel('weapon_damage') * 0.6
+  }
+
+  /**
+   * 子弹分裂数量（1->2）：每级+1次分裂机会
+   */
+  get split2Count() {
+    return this.getLevel('weapon_split_2')
+  }
+
+  /**
+   * 子弹分裂数量（1->4）：每级+1次分裂机会
+   */
+  get split4Count() {
+    return this.getLevel('weapon_split_4')
   }
 
   /**

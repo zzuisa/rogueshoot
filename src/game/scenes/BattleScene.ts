@@ -108,6 +108,9 @@ export class BattleScene extends Phaser.Scene {
     this.skillRangeGfx = this.add.graphics()
     this.skillRangeGfx.setVisible(false)
     
+    // 主武器信息图形（canvas内渲染，深度999，低于技能选择界面1000）
+    this.weaponInfoGfx = this.add.graphics()
+    this.weaponInfoGfx.setDepth(999) // 确保低于技能选择界面（1000）
 
     // 鼠标/触摸点击事件：选择距离点击位置最近的敌人作为目标
     // 移动端和桌面端都支持
@@ -156,6 +159,9 @@ export class BattleScene extends Phaser.Scene {
     this.stepPlayer(dtSec)
     this.stepCombat(dtSec)
     this.stepSkills(dtSec)
+    
+    // 绘制主武器信息（canvas内，深度999）
+    this.drawWeaponInfo()
     
     // 更新伤害统计（DOM方式）
     this.updateDamageStats()
@@ -1370,15 +1376,7 @@ export class BattleScene extends Phaser.Scene {
         overlay.destroy(true)
         this.skillUi = null
         this.updateSkillsBar() // 更新技能状态栏
-        // 恢复主武器信息显示（如果之前是显示的）
-        this.updatePlayerStats()
-        const playerStatsEl = document.getElementById('player-stats')
-        if (playerStatsEl && this.playerStatsVisible) {
-          const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
-          if (bulletSpreadLevel > 0) {
-            playerStatsEl.style.display = 'block'
-          }
-        }
+        // 主武器信息现在在canvas中自动渲染，不需要手动恢复
       })
 
       overlay.add([card, name, desc])
@@ -2287,6 +2285,86 @@ export class BattleScene extends Phaser.Scene {
         playerStatsEl.style.display = 'none'
       }
     }
+  }
+
+  /**
+   * 在canvas内绘制主武器信息（左上角，深度999，低于技能选择界面1000）
+   */
+  private drawWeaponInfo() {
+    this.weaponInfoGfx.clear()
+    
+    const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
+    if (bulletSpreadLevel === 0) return // 没有升级时不显示
+    
+    const bulletCount = this.skills.bulletCount
+    const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
+    const damage = this.player.damage
+    
+    // 移动端检测
+    const isMobile = this.scale.width <= 768
+    const isSmallMobile = this.scale.width <= 480
+    
+    // 根据屏幕尺寸调整参数
+    const x = isMobile ? 4 : 12
+    const y = isMobile ? 100 : 120 // 与CSS中的top值对应
+    const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
+    const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
+    const itemWidth = isSmallMobile ? 120 : (isMobile ? 140 : 160)
+    const padding = isMobile ? 2 : 4
+    
+    // 计算内容高度（标题 + 3行信息）
+    const itemHeight = 4 * lineHeight + padding * 2 + (isMobile ? 16 : 20)
+    
+    // 背景（半透明）
+    this.weaponInfoGfx.fillStyle(0x0c0f14, 0.6)
+    this.weaponInfoGfx.fillRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
+    this.weaponInfoGfx.lineStyle(1, 0x6bff95, 0.5)
+    this.weaponInfoGfx.strokeRoundedRect(x - padding, y - padding, itemWidth, itemHeight, 4)
+    
+    // 清理旧文本
+    this.weaponInfoTexts.forEach(t => t.destroy())
+    this.weaponInfoTexts = []
+    
+    let currentY = y
+    
+    // 标题
+    const title = this.add.text(x, currentY, '主武器', {
+      fontSize: `${fontSize + 1}px`,
+      color: '#6bff95',
+      fontFamily: 'monospace',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(title)
+    currentY += lineHeight + 2
+    
+    // 散射信息
+    const spreadText = `子弹散射: Lv.${bulletSpreadLevel}`
+    const spreadObj = this.add.text(x, currentY, spreadText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(spreadObj)
+    currentY += lineHeight
+    
+    // 子弹数信息
+    const countText = `子弹数: ${bulletCount}`
+    const countObj = this.add.text(x, currentY, countText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(countObj)
+    currentY += lineHeight
+    
+    // 散射角信息
+    const angleText = `散射角: ${spreadDeg}°`
+    const angleObj = this.add.text(x, currentY, angleText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: 'monospace',
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(angleObj)
   }
 
   /**

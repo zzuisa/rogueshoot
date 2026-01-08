@@ -7,7 +7,8 @@
  * - 支持多种状态效果：冻结、感电、点燃、击退
  */
 import Phaser from 'phaser'
-import type { AttackMode, ZombieKind } from './zombieTypes'
+import type { AttackMode, ZombieKind, ElementResistance } from './zombieTypes'
+import type { DamageType } from '../damage/DamageType'
 
 /**
  * 僵尸创建配置
@@ -24,6 +25,8 @@ export type ZombieConfig = Readonly<{
   attackIntervalSec: number    // 攻击间隔（秒）
   rangedStopDistance: number   // 远程怪停止距离（距离防线多远停下）
   shotSpeed: number            // 远程怪子弹速度（像素/秒）
+  size: number                 // 体型大小（用于分裂子弹逻辑）
+  elementResistance?: ElementResistance  // 属性抗性和弱点
 }>
 
 export class Zombie {
@@ -53,6 +56,10 @@ export class Zombie {
   readonly rangedStopDistance: number
   /** 远程怪子弹速度（像素/秒） */
   readonly shotSpeed: number
+  /** 体型大小（用于分裂子弹逻辑） */
+  readonly size: number
+  /** 属性抗性和弱点 */
+  readonly elementResistance?: ElementResistance
 
   // ===== 状态效果 =====
   /** 冻结状态：冻结直到该时间戳（0表示未冻结） */
@@ -87,9 +94,15 @@ export class Zombie {
     this.attackIntervalSec = cfg.attackIntervalSec
     this.rangedStopDistance = cfg.rangedStopDistance
     this.shotSpeed = cfg.shotSpeed
+    this.size = cfg.size
+    this.elementResistance = cfg.elementResistance
 
-    // 创建Phaser矩形图形（12x12像素，带边框）
-    this.go = scene.add.rectangle(cfg.x, cfg.y, 12, 12, cfg.color, 1)
+    // 根据体型计算显示大小：基础大小6像素，乘以体型得到实际大小
+    // 体型1.5 -> 9像素，体型2 -> 12像素，体型3 -> 18像素，体型5 -> 30像素，体型8 -> 48像素
+    const displaySize = 6 * cfg.size
+    
+    // 创建Phaser矩形图形（根据体型调整大小，带边框）
+    this.go = scene.add.rectangle(cfg.x, cfg.y, displaySize, displaySize, cfg.color, 1)
     this.go.setStrokeStyle(2, 0x0c0f14, 0.7)
     
     // 创建血条图形（初始满血）
@@ -169,7 +182,8 @@ export class Zombie {
     
     const barWidth = 16
     const barHeight = 3
-    const offsetY = -10  // 血条在僵尸上方的偏移
+    // 根据体型调整血条位置：基础偏移-10，加上体型的一半（因为僵尸大小是6*size）
+    const offsetY = -10 - (6 * this.size) / 2  // 血条在僵尸上方的偏移
     
     this.hpBarGfx.clear()
     
@@ -226,13 +240,35 @@ export class Zombie {
   }
 
   /**
-   * 获取当前受到的伤害倍率（感电状态会增加受伤）
+   * 获取伤害倍率（考虑感电状态和属性抗性/弱点）
    * @param nowSec 当前游戏时间（秒）
-   * @returns 伤害倍率（默认1.0，感电时>1.0）
+   * @param damageType 伤害属性类型（可选）
+   * @returns 伤害倍率（默认1.0，感电时>1.0，考虑属性抗性/弱点）
    */
-  getDamageTakenMult(nowSec: number) {
-    if (nowSec < this.shockedUntil) return this.shockMult
-    return 1
+  getDamageTakenMult(nowSec: number, damageType?: DamageType) {
+    let mult = 1.0
+    
+    // 感电状态增伤
+    if (nowSec < this.shockedUntil) {
+      mult *= this.shockMult
+    }
+    
+    // 属性抗性和弱点
+    if (damageType && this.elementResistance) {
+      // 检查抗性（减伤）
+      const resistance = this.elementResistance.resistances[damageType]
+      if (resistance !== undefined) {
+        mult *= (1 - resistance)  // 例如：0.5抗性 -> 只受到50%伤害
+      }
+      
+      // 检查弱点（增伤）
+      const weakness = this.elementResistance.weaknesses[damageType]
+      if (weakness !== undefined) {
+        mult *= (1 + weakness)  // 例如：0.5弱点 -> 受到150%伤害
+      }
+    }
+    
+    return mult
   }
 
   /**

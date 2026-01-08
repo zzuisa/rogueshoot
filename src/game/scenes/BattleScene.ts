@@ -9,19 +9,45 @@ import { ZOMBIE_TYPES, type ZombieKind } from '../entities/zombieTypes'
 import { SkillPool } from '../skills/SkillPool'
 import { SkillSystem, type SkillChoice } from '../skills/SkillSystem'
 import { SKILL_DEFS, type MainSkillId, type SkillId, type SkillDef } from '../skills/skillDefs'
+import { AudioManager } from '../audio/AudioManager'
+import { getSkillDamageType } from '../damage/SkillDamageType'
+import type { DamageType } from '../damage/DamageType'
+import { DamageCalculator } from '../damage/DamageCalculator'
+import { TalentManager } from '../talents/TalentManager'
+import { EffectManager } from '../effects/EffectManager'
 
 export class BattleScene extends Phaser.Scene {
+  // ===== 子弹速度常量 =====
+  /** 主武器子弹速度（像素/秒） */
+  private static readonly BULLET_SPEED = 260
+  /** 次级子弹速度（像素/秒，为主子弹的38.5%） */
+  private static readonly SECONDARY_BULLET_SPEED = 100
+
   private defenseHp = 2000
   private readonly defenseHpMax = 2000
 
   private exp = 0
   private level = 1
   private expNext = 10
+  private pendingLevelUps = 0  // 待处理的升级次数（用于连升多级）
 
   private player!: Player
   private zombies: Zombie[] = []
   private bullets: Bullet[] = []
   private secondaryBullets: SecondaryBullet[] = []
+  
+  // 连发系统：存储待发射的子弹批次信息
+  // 每个批次包含一次连发的所有散射子弹（同时发射）
+  private burstQueue: Array<{
+    targetX: number
+    targetY: number
+    baseAng: number
+    angles: number[]  // 该批次所有子弹的角度（散射子弹同时发射）
+    index: number     // 批次索引
+    total: number     // 总批次数
+  }> = []
+  private burstTimer = 0  // 连发间隔计时器
+  private readonly burstInterval = 0.03  // 连发间隔（秒），避免子弹重叠
   private tornados: Tornado[] = []
   
   /** 手动选择的目标（点击鼠标时设置，优先攻击此目标） */
@@ -77,8 +103,34 @@ export class BattleScene extends Phaser.Scene {
   private vortexes: { x: number; y: number; r: number; ttl: number; dps: number; pull: number; gfx: Phaser.GameObjects.Graphics }[] = []
   private pendingBombs: { x: number; y: number; delay: number; r: number; dmg: number }[] = []
   private iceFogs: { x: number; y: number; r: number; ttl: number; freezeSec: number; gfx: Phaser.GameObjects.Graphics }[] = []
-  private empWaves: { y: number; w: number; ttl: number; dmg: number; shockMult: number; shockSec: number; gfx: Phaser.GameObjects.Graphics }[] = []
+  private empStrikes: { x: number; y: number; r: number; ttl: number; dmg: number; shockMult: number; shockSec: number; gfx: Phaser.GameObjects.Graphics }[] = []
   private chainFx: { ttl: number; gfx: Phaser.GameObjects.Graphics }[] = []
+  
+  // 燃油弹抛掷物系统
+  private napalmProjectiles: Array<{
+    x: number
+    y: number
+    vx: number  // 水平速度
+    vy: number  // 垂直速度
+    targetX: number  // 目标X坐标
+    targetY: number  // 目标Y坐标
+    radius: number  // 爆炸半径
+    ttl: number  // 持续时间
+    pctPerSec: number  // 百分比伤害
+    initialDmg: number  // 初始伤害
+    lv: number  // 技能等级
+    gfx: Phaser.GameObjects.Graphics  // 抛掷物图形
+    trailGfx: Phaser.GameObjects.Graphics  // 轨迹线图形
+    flightTime: number  // 已飞行时间
+  }> = []
+  
+  // 伤害数字UI系统已移至 EffectManager
+  
+  // 管理器实例
+  private audioManager!: AudioManager
+  private damageCalculator!: DamageCalculator
+  private talentManager!: TalentManager
+  private effectManager!: EffectManager
 
   constructor() {
     super({ key: 'BattleScene' })
@@ -113,13 +165,30 @@ export class BattleScene extends Phaser.Scene {
     this.weaponInfoGfx = this.add.graphics()
     this.weaponInfoGfx.setDepth(999) // 确保低于技能选择界面（1000）
 
+    // 初始化管理器
+    this.audioManager = new AudioManager()
+    this.damageCalculator = new DamageCalculator(this, this.player, this.skills)
+    this.talentManager = new TalentManager(this, this.skills, this.scale)
+    this.effectManager = new EffectManager(this)
+    
     // 鼠标/触摸点击事件：选择距离点击位置最近的敌人作为目标
     // 移动端和桌面端都支持
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       // 左键点击或触摸（移动端button为0）
       if (pointer.button === 0 || pointer.isDown) {
+        // 初始化音频（需要在用户交互后）
+        this.audioManager.init()
+        // 启动BGM（如果还没启动）
+        this.audioManager.playBGM()
+        
         this.selectTargetAt(pointer.worldX, pointer.worldY)
       }
+    })
+    
+    // 键盘事件：也用于初始化音频
+    this.input.keyboard?.on('keydown', () => {
+      this.audioManager.init()
+      this.audioManager.playBGM()
     })
 
     // 初始化第一波
@@ -161,6 +230,15 @@ export class BattleScene extends Phaser.Scene {
     this.stepCombat(dtSec)
     this.stepSkills(dtSec)
     
+    // 更新伤害数字UI
+    this.effectManager.updateDamageNumbers(dtSec)
+    
+    // 更新传送动画
+    this.talentManager.updateTeleportAnimations(dtSec)
+    
+    // 更新伤害计算器的时间
+    this.damageCalculator.setTimeAliveSec(this.timeAliveSec)
+    
     // 绘制主武器信息（canvas内，深度999，常显示，无边框）
     this.drawWeaponInfo()
     
@@ -171,6 +249,44 @@ export class BattleScene extends Phaser.Scene {
   private stepPlayer(dtSec: number) {
     this.player.update(dtSec)
     this.drawRangeArc()
+
+    // 处理连发队列：按时间间隔发射批次
+    // 每次发射一个批次的所有散射子弹（同时发射，整齐地）
+    if (this.burstQueue.length > 0) {
+      this.burstTimer += dtSec
+      if (this.burstTimer >= this.burstInterval) {
+        this.burstTimer = 0
+        const nextBatch = this.burstQueue.shift()
+        if (nextBatch) {
+          // 同时发射该批次的所有散射子弹（整齐地）
+          const speed = BattleScene.BULLET_SPEED
+          // 计算实际伤害（应用增伤倍率）
+          const actualDamage = this.player.damage * this.skills.weaponDamageMult
+          // 获取穿透数量
+          const pierce = this.skills.weaponPierce
+          
+          for (const ang of nextBatch.angles) {
+            const vx = Math.cos(ang) * speed
+            const vy = Math.sin(ang) * speed
+            const bullet = new Bullet(this, {
+              x: this.player.x,
+              y: this.player.y - 8,
+              vx,
+              vy,
+              damage: actualDamage,
+              pierce
+              // 无最大射程限制
+            })
+            this.bullets.push(bullet)
+          }
+          
+          // 播放发射音效
+          this.audioManager?.playShootSound()
+          
+          // 分裂逻辑在命中时处理，每发子弹命中时都会触发分裂
+        }
+      }
+    }
 
     // 检查手动目标是否仍然有效（存活且在射程内）
     if (this.manualTarget) {
@@ -187,6 +303,12 @@ export class BattleScene extends Phaser.Scene {
     }
 
     // auto fire：优先使用手动目标，否则自动选择
+    // 如果连发队列不为空，不触发新的射击
+    if (this.burstQueue.length > 0) {
+      this.updateTargetIndicator()
+      return
+    }
+    
     if (!this.player.canFire()) {
       this.updateTargetIndicator()
       return
@@ -276,7 +398,7 @@ export class BattleScene extends Phaser.Scene {
       }
       
       // 预测目标位置
-      const bulletSpeed = 130  // 子弹速度放慢50%（260 -> 130）
+      const bulletSpeed = BattleScene.BULLET_SPEED
       const predicted = this.predictTargetPosition(targetX, targetY, targetVx, targetVy, bulletSpeed)
       predictedX = predicted.x
       predictedY = predicted.y
@@ -285,32 +407,121 @@ export class BattleScene extends Phaser.Scene {
     const dx = predictedX - this.player.x
     const dy = predictedY - this.player.y
     const baseAng = Math.atan2(dy, dx)
-    const speed = 130  // 子弹速度放慢50%（260 -> 130）
+    const speed = BattleScene.BULLET_SPEED
 
-    const count = this.skills.bulletCount
+    // 连发数量：1 + rapidFireCount（每级+1发）
+    const rapidFireLevel = this.skills.rapidFireCount
+    const burstCount = 1 + rapidFireLevel  // 0级=1发，1级=2发，2级=3发...
+    
+    // 散射子弹数：1 + bulletSpreadLevel（每级+1发）
+    const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
+    const spreadBulletCount = 1 + bulletSpreadLevel  // 0级=1发，1级=2发，2级=3发...
+    
+    // 散射角度
     const spread = this.skills.spreadRad
 
-    if (count === 1) {
+    // 清空之前的连发队列
+    this.burstQueue = []
+    this.burstTimer = 0
+
+    // 计算实际伤害（应用增伤倍率）
+    const actualDamage = this.player.damage * this.skills.weaponDamageMult
+    // 获取穿透数量（默认1，表示命中即消失）
+    const pierce = this.skills.weaponPierce
+
+    // 如果只有单发且没有散射，直接发射
+    if (burstCount === 1 && spreadBulletCount === 1) {
       const vx = Math.cos(baseAng) * speed
       const vy = Math.sin(baseAng) * speed
-      const bullet = new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range })
+      const bullet = new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: actualDamage, pierce })  // 无最大射程限制
       this.bullets.push(bullet)
       
-      // 立即分裂：向固定方向发射指定个数的次级子弹
-      this.spawnBulletSplitImmediate(this.player.x, this.player.y - 8, baseAng, this.player.damage)
+      // 播放发射音效
+      this.audioManager?.playShootSound()
       return
     }
 
-    for (let i = 0; i < count; i++) {
-      const t = i / (count - 1)
-      const ang = baseAng + (t - 0.5) * spread
-      const vx = Math.cos(ang) * speed
-      const vy = Math.sin(ang) * speed
-      const bullet = new Bullet(this, { x: this.player.x, y: this.player.y - 8, vx, vy, damage: this.player.damage, maxDistance: this.player.range })
-      this.bullets.push(bullet)
+    // 连发：将子弹批次加入队列，按时间间隔发射
+    // 每次连发都同时发射 spreadBulletCount 颗散射子弹（整齐地）
+    // 确保至少一条弹道（双数时为最左侧）能命中目标
+    for (let burstIndex = 0; burstIndex < burstCount; burstIndex++) {
+      // 计算该批次所有散射子弹的角度
+      // 确保至少一条弹道（双数时为最左侧）能命中目标
+      const angles: number[] = []
+      if (spreadBulletCount === 1) {
+        // 没有散射，使用基础角度
+        angles.push(baseAng)
+      } else {
+        // 有散射，调整角度分布确保至少一条弹道命中目标
+        const isEven = spreadBulletCount % 2 === 0
+        const targetIndex = isEven ? 0 : Math.floor(spreadBulletCount / 2)  // 双数=0（最左侧），单数=中间
+        
+        if (isEven) {
+          // 双数弹道：最左侧（索引0）指向目标，其他弹道向右分布
+          // 分布范围：[baseAng, baseAng + spread]
+          for (let spreadIndex = 0; spreadIndex < spreadBulletCount; spreadIndex++) {
+            if (spreadIndex === 0) {
+              // 最左侧精确指向目标
+              angles.push(baseAng)
+            } else {
+              // 其他弹道在 [baseAng, baseAng + spread] 范围内均匀分布
+              const t = spreadIndex / (spreadBulletCount - 1)  // 0 到 1
+              const ang = baseAng + t * spread
+              angles.push(ang)
+            }
+          }
+        } else {
+          // 单数弹道：中间（索引 targetIndex）指向目标，其他弹道在两侧分布
+          // 分布范围：[baseAng - spread/2, baseAng + spread/2]
+          for (let spreadIndex = 0; spreadIndex < spreadBulletCount; spreadIndex++) {
+            if (spreadIndex === targetIndex) {
+              // 中间精确指向目标
+              angles.push(baseAng)
+            } else {
+              // 其他弹道在 [baseAng - spread/2, baseAng + spread/2] 范围内均匀分布
+              const offset = spreadIndex - targetIndex
+              const totalSlots = spreadBulletCount - 1  // 除了中间那条，其他位置数
+              const t = offset / (totalSlots / 2)  // -1 到 1
+              const ang = baseAng + t * (spread / 2)
+              angles.push(ang)
+            }
+          }
+        }
+      }
       
-      // 立即分裂：向固定方向发射指定个数的次级子弹
-      this.spawnBulletSplitImmediate(this.player.x, this.player.y - 8, ang, this.player.damage)
+      // 将批次信息加入连发队列
+      this.burstQueue.push({
+        targetX: predictedX,
+        targetY: predictedY,
+        baseAng,
+        angles,  // 该批次所有子弹的角度
+        index: burstIndex,
+        total: burstCount
+      })
+    }
+    
+    // 立即发射第一批次的所有子弹（不等待间隔，整齐地同时发射）
+    if (this.burstQueue.length > 0) {
+      const firstBatch = this.burstQueue.shift()!
+      // 同时发射该批次的所有散射子弹
+      const pierce = this.skills.weaponPierce
+      for (const ang of firstBatch.angles) {
+        const vx = Math.cos(ang) * speed
+        const vy = Math.sin(ang) * speed
+        const bullet = new Bullet(this, { 
+          x: this.player.x, 
+          y: this.player.y - 8, 
+          vx, 
+          vy, 
+          damage: actualDamage,
+          pierce
+          // 无最大射程限制
+        })
+        this.bullets.push(bullet)
+      }
+      
+      // 播放发射音效
+      this.audioManager?.playShootSound()
     }
   }
 
@@ -389,19 +600,29 @@ export class BattleScene extends Phaser.Scene {
     for (const b of this.bullets) b.update(dtSec)
     const keepB: Bullet[] = []
     for (const b of this.bullets) {
+      // 检查是否超出射程（如果有设置最大射程）
       if (b.isOutOfRange()) {
         b.destroy()
         continue
       }
       
       // 连续碰撞检测：检查子弹移动路径是否与僵尸碰撞
-      // 僵尸大小：12x12像素（半径约6像素），子弹大小：3x3像素（半径约1.5像素）
-      // 碰撞判定范围：僵尸半径 + 子弹半径 + 容差 = 6 + 1.5 + 2 = 9.5，取10
-      const hitRadius = 10
+      // 根据僵尸体型计算碰撞半径：基础半径6像素，乘以体型得到实际半径
+      // 子弹大小：3x3像素（半径约1.5像素）
+      // 碰撞判定范围：僵尸半径 + 子弹半径 + 容差
+      const bulletRadius = 1.5  // 子弹半径
+      const tolerance = 2  // 容差
       let hit: Zombie | null = null
       
       for (const z of this.zombies) {
         if (z.hp <= 0 || !z.isAlive()) continue
+        
+        // 如果已经穿透过这个敌人，跳过（避免重复命中）
+        if (b.piercedZombies.has(z.id)) continue
+        
+        // 根据该僵尸的体型计算碰撞半径
+        const zombieRadius = 6 * z.size  // 根据体型计算僵尸半径
+        const hitRadius = zombieRadius + bulletRadius + tolerance
         
         // 方法1：检查当前帧位置（快速检测）
         const d = Math.hypot(z.x - b.x, z.y - b.y)
@@ -429,11 +650,34 @@ export class BattleScene extends Phaser.Scene {
       }
       
       if (hit) {
-        const dmg = b.damage * hit.getDamageTakenMult(this.timeAliveSec)
-        this.recordDamage('主武器', dmg)
-        hit.takeDamage(dmg)
-        b.destroy()
-        continue
+        // 计算基础伤害（主武器是物理属性）
+        const baseDmg = b.damage
+        // 应用暴击和天赋效果（传递物理属性）
+        const { finalDamage, isCrit } = this.damageCalculator.calculateDamageWithCritAndTalents(baseDmg, hit, '主武器', 'physical')
+        this.recordDamage('主武器', finalDamage)
+        hit.takeDamage(finalDamage)
+        
+        // 显示伤害数字（暴击时显示不同颜色）
+        this.effectManager.showDamageNumber(hit.x, hit.y, finalDamage, isCrit)
+        
+        // 应用天赋效果（命中时触发）
+        const instakilled = this.talentManager.applyTalentEffectsOnHit(hit, finalDamage, isCrit)
+        if (instakilled) {
+          this.recordDamage('秒杀', hit.maxHp)
+        }
+        
+        // 记录已穿透的敌人
+        b.piercedZombies.add(hit.id)
+        
+        // 子弹命中时在命中位置分裂（传入被命中的目标，让次级子弹避开它）
+        const bulletAngle = Math.atan2(b.vy, b.vx)
+        this.spawnBulletSplitImmediate(b.x, b.y, bulletAngle, b.damage, hit)
+        
+        // 检查穿透数量：如果已穿透数量达到上限，销毁子弹
+        if (b.piercedZombies.size >= b.pierce) {
+          b.destroy()
+          continue
+        }
       }
       
       if (b.x < -30 || b.x > this.scale.width + 30 || b.y < -40 || b.y > this.scale.height + 40) {
@@ -454,11 +698,22 @@ export class BattleScene extends Phaser.Scene {
       }
       
       // 次级子弹碰撞检测
-      const hitRadius = 10
+      // 根据僵尸体型计算碰撞半径
+      const bulletRadius = 1.5  // 次级子弹半径（与主子弹相同）
+      const tolerance = 2  // 容差
       let hit: Zombie | null = null
       
       for (const z of this.zombies) {
         if (z.hp <= 0 || !z.isAlive()) continue
+        
+        // 如果该目标是排除目标且体型<=3，则跳过（体型>3的可以命中）
+        if (sb.excludedTargetId !== undefined && z.id === sb.excludedTargetId && z.size <= 3) {
+          continue
+        }
+        
+        // 根据该僵尸的体型计算碰撞半径
+        const zombieRadius = 6 * z.size  // 根据体型计算僵尸半径
+        const hitRadius = zombieRadius + bulletRadius + tolerance
         
         const d = Math.hypot(z.x - sb.x, z.y - sb.y)
         if (d <= hitRadius) {
@@ -483,9 +738,20 @@ export class BattleScene extends Phaser.Scene {
       }
       
       if (hit) {
-        const dmg = sb.damage * hit.getDamageTakenMult(this.timeAliveSec)
-        this.recordDamage('主武器', dmg)
-        hit.takeDamage(dmg)
+        const baseDmg = sb.damage
+        const { finalDamage, isCrit } = this.damageCalculator.calculateDamageWithCritAndTalents(baseDmg, hit, '主武器', 'physical')
+        this.recordDamage('主武器', finalDamage)
+        hit.takeDamage(finalDamage)
+        
+        // 显示伤害数字（暴击时显示不同颜色）
+        this.effectManager.showDamageNumber(hit.x, hit.y, finalDamage, isCrit)
+        
+        // 应用天赋效果（命中时触发）
+        const instakilled = this.talentManager.applyTalentEffectsOnHit(hit, finalDamage, isCrit)
+        if (instakilled) {
+          this.recordDamage('秒杀', hit.maxHp)
+        }
+        
         sb.destroy()
         continue
       }
@@ -540,6 +806,7 @@ export class BattleScene extends Phaser.Scene {
     this.tornados = keepT
 
     // === skill effects update ===
+    this.stepNapalmProjectiles(dtSec)
     this.stepExplosions(dtSec)
     this.stepBurnZones(dtSec)
     this.stepBeams(dtSec)
@@ -547,7 +814,7 @@ export class BattleScene extends Phaser.Scene {
     this.stepVortexes(dtSec)
     this.stepPendingBombs(dtSec)
     this.stepIceFogs(dtSec)
-    this.stepEmpWaves(dtSec)
+    this.stepEmpStrikes(dtSec)
     this.stepChainFx(dtSec)
 
     if (this.defenseHp <= 0) this.showGameOver()
@@ -661,6 +928,20 @@ export class BattleScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * 获取主武器伤害因子
+   * 频率越高的技能（冷却时间越短），因子越低
+   * 公式：因子 = 技能冷却时间 / 基准冷却时间（5秒）
+   * 例如：冷却2秒的技能因子=0.4，冷却5秒的技能因子=1.0，冷却10秒的技能因子=2.0
+   */
+  private getWeaponDamageFactor(skillId: MainSkillId, lv: number): number {
+    const cooldown = this.baseCooldown(skillId, lv) * this.skills.getCooldownMult(skillId)
+    const baseCooldown = 5.0  // 基准冷却时间（5秒）
+    // 频率越高（冷却越短），因子越低
+    // 最小因子0.2（冷却1秒），最大因子2.5（冷却12.5秒）
+    return Math.max(0.2, Math.min(2.5, cooldown / baseCooldown))
+  }
+
   private castMainSkill(id: MainSkillId, lv: number) {
     switch (id) {
       case 'aurora':
@@ -721,7 +1002,9 @@ export class BattleScene extends Phaser.Scene {
     
     const x = target.x // 以最近敌人的X坐标为中心
     const beamW = (14 + lv * 4) * this.skills.getRadiusMult('aurora')
-    const dmg = (8 + lv * 3.2) * this.skills.getDamageMult('aurora')
+    const weaponFactor = this.getWeaponDamageFactor('aurora', lv)
+    const baseDmg = 8 + lv * 3.2
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('aurora')
 
     // 伤害判定
     for (const z of this.zombies) {
@@ -730,6 +1013,7 @@ export class BattleScene extends Phaser.Scene {
         const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
         this.recordDamage('极光', actualDmg)
         z.takeDamage(actualDmg)
+        this.effectManager.showDamageNumber(z.x, z.y, actualDmg)
       }
     }
 
@@ -756,13 +1040,23 @@ export class BattleScene extends Phaser.Scene {
 
   private castTornado(lv: number) {
     const r = (18 + lv * 4) * this.skills.getRadiusMult('tornado')
-    const d = (2.6 + lv * 0.4) * this.skills.getDurationMult('tornado')
-    const dps = (3 + lv * 1.2) * this.skills.getDamageMult('tornado')
+    // 提高龙卷风DPS：基础值从3提高到15，每级从1.2提高到6
+    const weaponFactor = this.getWeaponDamageFactor('tornado', lv)
+    const baseDps = 15 + lv * 6
+    const dps = (baseDps + weaponFactor * this.player.damage) * this.skills.getDamageMult('tornado')
     const count = 1 + this.skills.getCountBonus('tornado')
+    
+    // 从防线到屏幕顶部需要移动的距离
+    const startY = this.defenseLineY - 6
+    const distanceToTop = startY  // 从514到0，需要移动514像素
+    const vy = -55 - lv * 10  // 向上移动速度（负值表示向上）
+    // 计算到达屏幕顶部所需的时间（加上一些余量，确保到达顶部）
+    const timeToTop = Math.abs(distanceToTop / vy) + 0.5  // 加上0.5秒余量
+    const d = timeToTop * this.skills.getDurationMult('tornado')
 
     for (let i = 0; i < count; i++) {
       const x = Phaser.Math.Clamp(this.player.x + (i - (count - 1) / 2) * 26, 20, this.scale.width - 20)
-      const t = new Tornado(this, { x, y: this.defenseLineY - 6, vy: -55 - lv * 10, radius: r, durationSec: d, dps })
+      const t = new Tornado(this, { x, y: startY, vy, radius: r, durationSec: d, dps })
       this.tornados.push(t)
     }
   }
@@ -778,7 +1072,9 @@ export class BattleScene extends Phaser.Scene {
     
     const count = 1 + this.skills.getCountBonus('thermobaric')
     const r = 60 * this.skills.getRadiusMult('thermobaric') + lv * 6
-    const dmg = (40 + lv * 12) * this.skills.getDamageMult('thermobaric')
+    const weaponFactor = this.getWeaponDamageFactor('thermobaric', lv)
+    const baseDmg = 40 + lv * 12
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('thermobaric')
 
     // 根据数量词条释放多次
     for (let i = 0; i < count; i++) {
@@ -867,10 +1163,10 @@ export class BattleScene extends Phaser.Scene {
     })
 
     // 火焰粒子效果（使用简单粒子模拟）
-    this.spawnFireParticles(x, y, r, 15)
+    this.effectManager.spawnFireParticles(x, y, r, 15)
     
     // 基础爆炸标记
-    this.spawnExplosion(x, y, r, 0xff6b6b)
+    this.effectManager.spawnExplosion(x, y, r, 0xff6b6b)
   }
 
   /**
@@ -879,28 +1175,111 @@ export class BattleScene extends Phaser.Scene {
    */
   /**
    * 燃油弹：地面持续燃烧区域，百分比扣血 + 点燃效果
-   * 特效：火焰燃烧区域 + 持续火焰粒子 + 烟雾效果
+   * 特效：抛掷动画 + 抛物线轨迹 + 火焰燃烧区域 + 持续火焰粒子 + 烟雾效果
    */
   private castNapalm(lv: number) {
     // 优先攻击最近的敌人位置
     const target = this.pickNearestZombie()
     if (!target) return // 无敌人时不释放
     
-    const x = target.x
-    const y = target.y
+    const targetX = target.x
+    const targetY = target.y
+    const startX = this.player.x
+    const startY = this.player.y - 8  // 从玩家位置稍上方发射
+    
+    // 固定飞行时间为0.8秒
+    const flightTime = 0.8  // 固定飞行时间（秒）
+    
+    // 计算抛物线轨迹参数
+    const dx = targetX - startX
+    const dy = targetY - startY
+    
+    // 计算初始速度（考虑重力，确保在0.8秒后到达目标位置）
+    const gravity = 400  // 重力加速度（像素/秒²）
+    // 水平速度：直接计算
+    const vx = dx / flightTime
+    // 垂直速度：使用抛物线公式 y = y0 + vy*t - 0.5*g*t^2
+    // 解方程：dy = vy*flightTime - 0.5*gravity*flightTime^2
+    // 得到：vy = (dy + 0.5*gravity*flightTime^2) / flightTime
+    const vy = (dy + 0.5 * gravity * flightTime * flightTime) / flightTime
+    
+    // 创建抛掷物图形（燃油弹外观）
+    const projectileGfx = this.add.graphics()
+    projectileGfx.fillStyle(0xff6b00, 1.0)
+    projectileGfx.fillCircle(0, 0, 4)  // 燃油弹主体（橙色）
+    projectileGfx.fillStyle(0xffe66b, 1.0)
+    projectileGfx.fillCircle(0, 0, 2)  // 内部亮点（黄色）
+    projectileGfx.setPosition(startX, startY)
+    projectileGfx.setDepth(500)  // 确保在僵尸上方
+    
+    // 创建轨迹线图形（抛物线预览）
+    const trailGfx = this.add.graphics()
+    trailGfx.lineStyle(1, 0xff6b00, 0.3)
+    trailGfx.setDepth(499)
+    
+    // 计算并绘制轨迹预览（虚线）
+    const steps = 20
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps
+      const time = flightTime * t
+      // 使用正确的抛物线公式：y = y0 + vy*t - 0.5*g*t^2
+      const px = startX + vx * time
+      const py = startY + vy * time - 0.5 * gravity * time * time
+      if (i === 0) {
+        trailGfx.moveTo(px, py)
+      } else {
+        trailGfx.lineTo(px, py)
+      }
+    }
+    trailGfx.strokePath()
+    
+    // 计算技能参数
     const r = 55 * this.skills.getRadiusMult('napalm') + lv * 4
     const ttl = (4.0 + lv * 0.5) * this.skills.getDurationMult('napalm')
-    // 提高百分比伤害：从每秒5%增加到每秒8%（随等级增加）
     const pct = (0.05 + lv * 0.008) * this.skills.getDamageMult('napalm')
+    const weaponFactor = this.getWeaponDamageFactor('napalm', lv)
+    const baseInitialDmg = 30 + lv * 10
+    const initialDmg = (baseInitialDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('napalm')
     
+    // 添加到抛掷物数组
+    this.napalmProjectiles.push({
+      x: startX,
+      y: startY,
+      vx,
+      vy,
+      targetX,
+      targetY,
+      radius: r,
+      ttl,
+      pctPerSec: pct,
+      initialDmg,
+      lv,
+      gfx: projectileGfx,
+      trailGfx: trailGfx,
+      flightTime: 0,
+    })
+  }
+  
+  /**
+   * 创建燃油弹燃烧区域（当抛掷物落地时调用）
+   */
+  private createNapalmBurnZone(
+    x: number,
+    y: number,
+    r: number,
+    ttl: number,
+    pct: number,
+    initialDmg: number,
+    lv: number
+  ) {
     // 初始爆炸伤害：对范围内的敌人造成直接伤害
-    const initialDmg = (30 + lv * 10) * this.skills.getDamageMult('napalm')
     for (const z of this.zombies) {
       const d = Math.hypot(z.x - x, z.y - y)
       if (d <= r) {
         const actualDmg = initialDmg * z.getDamageTakenMult(this.timeAliveSec)
         this.recordDamage('燃油弹', actualDmg)
         z.takeDamage(actualDmg)
+        this.effectManager.showDamageNumber(z.x, z.y, actualDmg)
         // 立即应用燃烧效果
         z.applyBurn(this.timeAliveSec, 2.0, pct)
       }
@@ -921,8 +1300,8 @@ export class BattleScene extends Phaser.Scene {
     this.burnZones.push({ x, y, r, ttl, pctPerSec: pct, gfx: g })
     
     // 初始爆炸特效
-    this.spawnExplosion(x, y, r * 0.6, 0xff6b00)
-    this.spawnFireParticles(x, y, r, 12 + lv * 2)
+    this.effectManager.spawnExplosion(x, y, r * 0.6, 0xff6b00)
+    this.effectManager.spawnFireParticles(x, y, r, 12 + lv * 2)
     
     // 持续生成火焰粒子（在燃烧期间）
     this.startBurnParticles(x, y, r, ttl)
@@ -935,7 +1314,9 @@ export class BattleScene extends Phaser.Scene {
   private castIcePierce(lv: number) {
     const count = 1 + this.skills.getCountBonus('ice_pierce')
     const width = (10 + lv * 2) * this.skills.getRadiusMult('ice_pierce')
-    const dmg = (18 + lv * 6) * this.skills.getDamageMult('ice_pierce')
+    const weaponFactor = this.getWeaponDamageFactor('ice_pierce', lv)
+    const baseDmg = 18 + lv * 6
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('ice_pierce')
     const freezeChance = Math.min(0.6, 0.18 + lv * 0.04)
     const freezeSec = (1.2 + lv * 0.12) * this.skills.getDurationMult('ice_pierce')
 
@@ -985,10 +1366,12 @@ export class BattleScene extends Phaser.Scene {
       const perpX = Math.cos(perpAngle)
       const perpY = Math.sin(perpAngle)
 
-      // 伤害和冻结判定（沿路径检测）
+      // 伤害和冻结判定（沿路径检测，支持穿透）
+      const pierce = 1  // 干冰弹默认穿透1（穿透路径，穿透表示可以穿透多少个敌人）
       const hit = new Set<number>()
       for (const z of this.zombies) {
-        if (hit.has(z.id)) continue
+        if (hit.size >= pierce) break  // 达到穿透上限
+        if (hit.has(z.id)) continue  // 已命中过
         
         // 计算点到线段的距离
         const distToLine = this.distToLineSegment(z.x, z.y, startX, startY, endX, endY)
@@ -997,10 +1380,11 @@ export class BattleScene extends Phaser.Scene {
           const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
           this.recordDamage('干冰弹', actualDmg)
           z.takeDamage(actualDmg)
+          this.effectManager.showDamageNumber(z.x, z.y, actualDmg)
           if (Math.random() < freezeChance) {
             z.applyFreeze(this.timeAliveSec, freezeSec)
             // 冻结特效：在敌人周围显示冰晶
-            this.spawnFreezeEffect(z.x, z.y)
+            this.effectManager.spawnFreezeEffect(z.x, z.y)
           }
         }
       }
@@ -1040,7 +1424,7 @@ export class BattleScene extends Phaser.Scene {
         for (let j = 0; j < particleCount; j++) {
           const t = j / particleCount
           const px = startX + (endX - startX) * t
-          this.spawnIceParticles(px, width * 0.5, 10, 1)
+          this.effectManager.spawnIceParticles(px, width * 0.5, 10, 1)
         }
         
         this.tweens.add({ targets: g, alpha: 0, duration: 250, onComplete: () => g.destroy() })
@@ -1057,8 +1441,10 @@ export class BattleScene extends Phaser.Scene {
     const target = this.pickNearestZombie()
     if (!target) return
     const w = (8 + lv * 1.2) * this.skills.getRadiusMult('high_energy_ray')
-    const ttl = (1.0 + lv * 0.22) * this.skills.getDurationMult('high_energy_ray')
-    const dps = (35 + lv * 10) * this.skills.getDamageMult('high_energy_ray')
+    const ttl = (4.0 + lv * 0.22) * this.skills.getDurationMult('high_energy_ray')
+    const weaponFactor = this.getWeaponDamageFactor('high_energy_ray', lv)
+    const baseDps = 35 + lv * 10
+    const dps = (baseDps + weaponFactor * this.player.damage) * this.skills.getDamageMult('high_energy_ray')
 
     const g = this.add.graphics()
     this.beams.push({ fromX: this.player.x, fromY: this.player.y, toX: target.x, toY: target.y, w, ttl, dps, gfx: g })
@@ -1073,7 +1459,9 @@ export class BattleScene extends Phaser.Scene {
    */
   private castGuidedLaser(lv: number) {
     const count = 2 + this.skills.getCountBonus('guided_laser') + Math.floor(lv / 2)
-    const dmg = (22 + lv * 7) * this.skills.getDamageMult('guided_laser')
+    const weaponFactor = this.getWeaponDamageFactor('guided_laser', lv)
+    const baseDmg = 22 + lv * 7
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('guided_laser')
 
     const targets = [...this.zombies]
       .filter((z) => z.hp > 0)
@@ -1108,11 +1496,19 @@ export class BattleScene extends Phaser.Scene {
    */
   private castArmoredCar(lv: number) {
     const count = 1 + this.skills.getCountBonus('armored_car')
-    const dmg = (28 + lv * 8) * this.skills.getDamageMult('armored_car')
+    const weaponFactor = this.getWeaponDamageFactor('armored_car', lv)
+    const baseDmg = 28 + lv * 8
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('armored_car')
     const kb = 120 + lv * 18
     const w = 18  // 宽度（横向尺寸）
     const h = 46  // 高度（竖向尺寸，车辆长度）
-    const ttl = 1.8 * this.skills.getDurationMult('armored_car')
+    
+    // 从防线到屏幕顶部需要移动的距离
+    const distanceToTop = this.defenseLineY  // 从520到0，需要移动520像素
+    const vy = -130  // 向上移动速度（负值表示向上）
+    // 计算到达屏幕顶部所需的时间（加上一些余量，确保到达顶部）
+    const timeToTop = Math.abs(distanceToTop / vy) + 0.5  // 加上0.5秒余量
+    const ttl = timeToTop * this.skills.getDurationMult('armored_car')
     
     // 根据数量词条释放多次
     for (let i = 0; i < count; i++) {
@@ -1122,7 +1518,6 @@ export class BattleScene extends Phaser.Scene {
       
       // 从防线位置开始，向屏幕上方移动
       const startY = this.defenseLineY
-      const vy = -130  // 向上移动速度（负值表示向上，放慢50%：260 -> 130）
       const gfx = this.add.graphics()
       
       // 延迟释放，避免重叠（飞行时间放慢50%，延迟增加100%）
@@ -1149,7 +1544,9 @@ export class BattleScene extends Phaser.Scene {
     const baseY = target.y
     const r = (80 + lv * 6) * this.skills.getRadiusMult('mini_vortex')
     const ttl = (3.6 + lv * 0.25) * this.skills.getDurationMult('mini_vortex')
-    const dps = (12 + lv * 4) * this.skills.getDamageMult('mini_vortex')
+    const weaponFactor = this.getWeaponDamageFactor('mini_vortex', lv)
+    const baseDps = 12 + lv * 4
+    const dps = (baseDps + weaponFactor * this.player.damage) * this.skills.getDamageMult('mini_vortex')
     const pull = 60 + lv * 8
     
     // 根据数量词条释放多次
@@ -1175,7 +1572,9 @@ export class BattleScene extends Phaser.Scene {
   private castAirBlast(lv: number) {
     const count = 1 + this.skills.getCountBonus('air_blast')
     const r = (90 + lv * 6) * this.skills.getRadiusMult('air_blast')
-    const dmg = (15 + lv * 5) * this.skills.getDamageMult('air_blast')
+    const weaponFactor = this.getWeaponDamageFactor('air_blast', lv)
+    const baseDmg = 15 + lv * 5
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('air_blast')
     const kb = 150 + lv * 25
     const baseX = this.player.x
     const baseY = this.defenseLineY - 40
@@ -1220,7 +1619,9 @@ export class BattleScene extends Phaser.Scene {
     
     const count = 4 + this.skills.getCountBonus('carpet_bomb') + Math.floor(lv / 2)
     const r = (55 + lv * 4) * this.skills.getRadiusMult('carpet_bomb')
-    const dmg = (35 + lv * 10) * this.skills.getDamageMult('carpet_bomb')
+    const weaponFactor = this.getWeaponDamageFactor('carpet_bomb', lv)
+    const baseDmg = 35 + lv * 10
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('carpet_bomb')
 
     // 以最近敌人为中心，在其周围进行轰炸
     for (let i = 0; i < count; i++) {
@@ -1286,45 +1687,187 @@ export class BattleScene extends Phaser.Scene {
   }
 
   /**
-   * 电磁穿刺：电磁波贯穿战线，对敌人造成感电并提高其后续受伤
-   * 特效：电磁波贯穿 + 电光闪烁 + 感电标记
+   * 电磁穿刺：随机雷劈，优先近点怪物，对敌人造成感电并提高其后续受伤
+   * 特效：从天空到目标的闪电 + 圆形范围电击 + 感电标记
+   * @param lv 技能等级
+   * @param isChain 是否为连锁雷劈（连锁雷劈继承所有强化）
    */
-  private castEmpPierce(lv: number) {
-    const y = Phaser.Math.Clamp(this.defenseLineY - 150, 80, this.defenseLineY - 80)
-    const w = (18 + lv * 2) * this.skills.getRadiusMult('emp_pierce')
-    const dmg = (20 + lv * 6) * this.skills.getDamageMult('emp_pierce')
+  private castEmpPierce(lv: number, isChain: boolean = false) {
+    // 计算基础数量
+    const baseCount = 1 + this.skills.getCountBonus('emp_pierce')
+    // 额外释放强化（只在非连锁时计算，连锁时继承）
+    let extraCount = 0
+    if (!isChain) {
+      if (this.skills.getLevel('emp_pierce_extra_1') > 0) extraCount += 1
+      if (this.skills.getLevel('emp_pierce_extra_2') > 0) extraCount += 2
+    } else {
+      // 连锁时继承额外释放强化
+      if (this.skills.getLevel('emp_pierce_extra_1') > 0) extraCount += 1
+      if (this.skills.getLevel('emp_pierce_extra_2') > 0) extraCount += 2
+    }
+    const totalCount = baseCount + extraCount
+    
+    const r = (18 + lv * 2) * this.skills.getRadiusMult('emp_pierce')  // 圆形范围半径
+    const weaponFactor = this.getWeaponDamageFactor('emp_pierce', lv)
+    const baseDmg = 20 + lv * 6
+    let dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('emp_pierce')
+    // 电磁增伤80%强化（连锁时也继承）
+    if (this.skills.getLevel('emp_pierce_electric_damage') > 0) {
+      dmg *= 1.8
+    }
     const shockMult = 1.2 + lv * 0.05
     const shockSec = (4.0 + lv * 0.2) * this.skills.getDurationMult('emp_pierce')
-    const ttl = 0.22
+    const ttl = 0.3  // 闪电特效持续时间
+    const hasExplosion = this.skills.getLevel('emp_pierce_explosion') > 0  // 连锁时也继承
+    const explosionRadius = 25  // 爆炸范围
+    const hasChain = this.skills.getLevel('emp_pierce_chain') > 0  // 连锁雷劈强化
 
-    // 伤害和感电
-    for (const z of this.zombies) {
-      if (Math.abs(z.y - y) <= w) {
-        const actualDmg = dmg * z.getDamageTakenMult(this.timeAliveSec)
-        this.recordDamage('电磁穿刺', actualDmg)
-        z.takeDamage(actualDmg)
-        z.applyShock(this.timeAliveSec, shockSec, shockMult)
-        // 感电特效：在敌人身上显示电光
-        this.spawnShockEffect(z.x, z.y)
-      }
+    // 获取所有可攻击的僵尸，按距离排序（优先近点）
+    const availableZombies = this.zombies
+      .filter(z => z.hp > 0 && z.y < this.defenseLineY)
+      .map(z => ({
+        zombie: z,
+        distance: Math.hypot(z.x - this.player.x, z.y - this.player.y),
+      }))
+      .sort((a, b) => a.distance - b.distance)  // 按距离排序，近的在前
+
+    if (availableZombies.length === 0) return
+
+    // 用于记录本次释放过程中是否有击杀（用于连锁雷劈，整个释放过程只触发一次）
+    // 使用数组来存储每个雷劈的击杀状态，因为它们是异步执行的
+    const killFlags: boolean[] = new Array(totalCount).fill(false)
+    let chainTriggered = false  // 标记是否已经触发了连锁（防止多次触发）
+    
+    // 执行单次雷劈的内部函数
+    const executeStrike = (targetIndex: number, delay: number = 0) => {
+      this.time.delayedCall(delay, () => {
+        // 重新获取可用僵尸（因为可能已经被之前的雷劈击杀）
+        const currentAvailableZombies = this.zombies
+          .filter(z => z.hp > 0 && z.y < this.defenseLineY)
+          .map(z => ({
+            zombie: z,
+            distance: Math.hypot(z.x - this.player.x, z.y - this.player.y),
+          }))
+          .sort((a, b) => a.distance - b.distance)
+
+        if (currentAvailableZombies.length === 0) return
+
+        // 选择目标
+        const poolSize = Math.max(1, Math.floor(currentAvailableZombies.length * 0.5))
+        const pool = currentAvailableZombies.slice(0, poolSize)
+        const selected = pool[Math.floor(Math.random() * pool.length)]
+        const z = selected.zombie
+        const strikeX = z.x
+        const strikeY = z.y
+
+        // 伤害和感电（圆形范围）
+        let hasKilled = false  // 本次雷劈是否击杀了敌人
+        for (const zombie of this.zombies) {
+          const dist = Math.hypot(zombie.x - strikeX, zombie.y - strikeY)
+          if (dist <= r) {
+            const baseDmg = dmg
+            const { finalDamage, isCrit } = this.damageCalculator.calculateDamageWithCritAndTalents(baseDmg, zombie, '电磁穿刺', 'electric')
+            this.recordDamage('电磁穿刺', finalDamage)
+            const oldHp = zombie.hp
+            zombie.takeDamage(finalDamage)
+            this.effectManager.showDamageNumber(zombie.x, zombie.y, finalDamage, isCrit)
+            zombie.applyShock(this.timeAliveSec, shockSec, shockMult)
+            // 感电特效：在敌人身上显示电光
+            this.effectManager.spawnShockEffect(zombie.x, zombie.y)
+            
+            // 检查是否击杀
+            if (oldHp > 0 && zombie.hp <= 0) {
+              hasKilled = true
+            }
+          }
+        }
+        
+        // 爆炸伤害（如果已解锁）
+        if (hasExplosion) {
+          for (const zombie of this.zombies) {
+            const dist = Math.hypot(zombie.x - strikeX, zombie.y - strikeY)
+            if (dist > r && dist <= r + explosionRadius) {
+              // 爆炸伤害为原伤害的50%
+              const explosionDmg = dmg * 0.5
+              const baseDmg = explosionDmg
+              const { finalDamage, isCrit } = this.damageCalculator.calculateDamageWithCritAndTalents(baseDmg, zombie, '电磁穿刺', 'electric')
+              this.recordDamage('电磁穿刺', finalDamage)
+              const oldHp = zombie.hp
+              zombie.takeDamage(finalDamage)
+              this.effectManager.showDamageNumber(zombie.x, zombie.y, finalDamage, isCrit)
+              
+              // 检查是否击杀
+              if (oldHp > 0 && zombie.hp <= 0) {
+                hasKilled = true
+              }
+            }
+          }
+          
+          // 爆炸特效
+          const explosionGfx = this.add.graphics()
+          explosionGfx.lineStyle(2, 0xff6b00, 0.8)
+          explosionGfx.strokeCircle(strikeX, strikeY, r + explosionRadius)
+          explosionGfx.fillStyle(0xff6b00, 0.15)
+          explosionGfx.fillCircle(strikeX, strikeY, r + explosionRadius)
+          this.time.delayedCall(0.2, () => {
+            explosionGfx.destroy()
+          })
+        }
+        
+        // 记录本次雷劈的击杀状态
+        killFlags[targetIndex] = hasKilled
+
+        // 闪电特效：从天空到目标
+        const g = this.add.graphics()
+        const skyY = -20  // 天空起始位置
+        
+        // 绘制锯齿状闪电路径（从天空到目标）
+        // 外层电光（较粗，半透明，紫色）
+        g.lineStyle(6, 0x9b6bff, 0.6)
+        this.effectManager.drawLightningPath(g, strikeX, skyY, [{ x: strikeX, y: strikeY }])
+        
+        // 核心电光（较细，高亮度，白色）
+        g.lineStyle(3, 0xffffff, 1.0)
+        this.effectManager.drawLightningPath(g, strikeX, skyY, [{ x: strikeX, y: strikeY }])
+        
+        // 圆形范围电击特效
+        g.lineStyle(1.5, 0xffff00, 0.8)
+        g.strokeCircle(strikeX, strikeY, r)
+        g.fillStyle(0xffff00, 0.2)
+        g.fillCircle(strikeX, strikeY, r)
+        
+        // 中心电击点
+        g.fillStyle(0xffffff, 1.0)
+        g.fillCircle(strikeX, strikeY, 4)
+        
+        this.empStrikes.push({ x: strikeX, y: strikeY, r, ttl, dmg, shockMult, shockSec, gfx: g })
+      })
     }
 
-    // 电磁波贯穿特效：多层电光波
-    const g = this.add.graphics()
-    // 外层电光（较粗，半透明）
-    g.lineStyle(5, 0x9b6bff, 0.5)
-    g.lineBetween(0, y, this.scale.width, y)
-    // 核心电光（较细，高亮度）
-    g.lineStyle(3, 0xffffff, 0.9)
-    g.lineBetween(0, y, this.scale.width, y)
-    // 电光闪烁点
-    for (let i = 0; i < 8; i++) {
-      const px = (this.scale.width / 8) * i
-      g.fillStyle(0xffff00, 0.8)
-      g.fillCircle(px, y, 3)
+    // 执行所有雷劈，第一个立即执行，额外释放的有1秒间隔
+    executeStrike(0, 0)  // 第一个立即执行
+    
+    // 额外释放：1秒间隔
+    for (let i = 1; i < totalCount; i++) {
+      executeStrike(i, 1 * i)  // 每个额外释放延迟1秒
     }
     
-    this.empWaves.push({ y, w, ttl, dmg, shockMult, shockSec, gfx: g })
+    // 连锁雷劈：等待所有雷劈执行完毕后，检查是否有击杀，只触发一次
+    if (hasChain && totalCount > 0) {
+      // 计算最后一个雷劈的延迟时间（最后一个雷劈的索引是 totalCount - 1）
+      const lastStrikeDelay = (totalCount - 1) * 1  // 最后一个雷劈的延迟（秒）
+      // 等待所有雷劈执行完毕 + 一个小缓冲（0.2秒），确保所有伤害和特效都处理完毕
+      this.time.delayedCall((lastStrikeDelay + 0.2) * 1000, () => {
+        // 检查是否有任何雷劈击杀了敌人
+        const hasAnyKill = killFlags.some(killed => killed)
+        if (hasAnyKill) {
+          // 延迟一小段时间后释放连锁雷劈，避免无限递归
+          this.time.delayedCall(0.1 * 1000, () => {
+            this.castEmpPierce(lv, true)  // 连锁雷劈继承所有强化
+          })
+        }
+      })
+    }
   }
 
   /**
@@ -1338,7 +1881,9 @@ export class BattleScene extends Phaser.Scene {
 
     const jumps = 3 + this.skills.getCountBonus('chain_electron') + Math.floor(lv / 2)
     const jumpR = (90 + lv * 4) * this.skills.getRadiusMult('chain_electron')
-    const dmg = (18 + lv * 5) * this.skills.getDamageMult('chain_electron')
+    const weaponFactor = this.getWeaponDamageFactor('chain_electron', lv)
+    const baseDmg = 18 + lv * 5
+    const dmg = (baseDmg + weaponFactor * this.player.damage) * this.skills.getDamageMult('chain_electron')
 
     const hit = new Set<number>()
     const points: { x: number; y: number }[] = [{ x: start.x, y: start.y }]
@@ -1349,7 +1894,7 @@ export class BattleScene extends Phaser.Scene {
       this.recordDamage('跃迁电子', actualDmg)
       cur.takeDamage(actualDmg)
       // 电击特效：在每个目标上显示电击
-      this.spawnShockEffect(cur.x, cur.y)
+      this.effectManager.spawnShockEffect(cur.x, cur.y)
       cur = this.findNextChainTarget(cur, hit, jumpR)
       if (cur) points.push({ x: cur.x, y: cur.y })
     }
@@ -1358,28 +1903,67 @@ export class BattleScene extends Phaser.Scene {
     const g = this.add.graphics()
     // 外层电光（较粗，半透明）
     g.lineStyle(5, 0x6bffea, 0.5)
-    this.drawLightningPath(g, this.player.x, this.player.y, points)
+    this.effectManager.drawLightningPath(g, this.player.x, this.player.y, points)
     // 核心电光（较细，高亮度）
     g.lineStyle(3, 0xffffff, 0.9)
-    this.drawLightningPath(g, this.player.x, this.player.y, points)
+    this.effectManager.drawLightningPath(g, this.player.x, this.player.y, points)
     this.chainFx.push({ ttl: 0.18, gfx: g })
   }
 
   private gainExp(amount: number) {
     this.exp += amount
+    let levelUps = 0
+    // 计算可以连升多少级
     while (this.exp >= this.expNext) {
       this.exp -= this.expNext
       this.level += 1
       this.expNext = Math.floor(10 + this.level * 4)
+      levelUps++
+    }
+    
+    // 如果有升级，处理升级逻辑
+    if (levelUps > 0) {
+      this.pendingLevelUps += levelUps
       this.onLevelUp()
     }
+    
     this.syncHud()
   }
 
   private onLevelUp() {
+    // 如果已经在升级选择界面，不重复触发（等待当前选择完成）
+    if (this.pausedForLevelUp) {
+      return
+    }
+    
+    // 暂停所有动画和时间
+    this.pauseAllAnimations()
+    
+    // 开始升级流程
+    this.pendingLevelUps--
     this.pausedForLevelUp = true
     const choices = this.skillPool.pick3Distinct(this.skills)
     this.showSkillChoice(choices)
+  }
+  
+  /**
+   * 暂停所有动画和时间
+   */
+  private pauseAllAnimations() {
+    // 暂停所有 tweens
+    this.tweens.pauseAll()
+    // 暂停时间系统（这会暂停所有 time.delayedCall 等，但不影响场景本身）
+    this.time.paused = true
+  }
+  
+  /**
+   * 恢复所有动画和时间
+   */
+  private resumeAllAnimations() {
+    // 恢复时间系统
+    this.time.paused = false
+    // 恢复所有 tweens
+    this.tweens.resumeAll()
   }
 
   private showSkillChoice(choices: SkillChoice[]) {
@@ -1392,9 +1976,13 @@ export class BattleScene extends Phaser.Scene {
     const bg = this.add.rectangle(0, 0, this.scale.width, this.scale.height, 0x000000, 0.55).setOrigin(0)
     overlay.add(bg)
 
+    // 显示当前是第几次升级（如果有连升多级）
+    const levelUpText = this.pendingLevelUps > 0 
+      ? `升级！选择一个技能（LV ${this.level}，还有 ${this.pendingLevelUps} 次升级待选择）`
+      : `升级！选择一个技能（LV ${this.level}）`
     const title = this.add
-      .text(this.scale.width / 2, 38, `升级！选择一个技能（LV ${this.level}）`, {
-        fontFamily: 'monospace',
+      .text(this.scale.width / 2, 38, levelUpText, {
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '14px',
         color: '#e8f0ff',
       })
@@ -1414,12 +2002,12 @@ export class BattleScene extends Phaser.Scene {
       card.setInteractive({ useHandCursor: true })
 
       const name = this.add.text(x + 8, y + 8, c.name, {
-        fontFamily: 'monospace',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '13px',
         color: '#a9c1ff',
       })
       const desc = this.add.text(x + 8, y + 28, c.desc, {
-        fontFamily: 'monospace',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '10px',
         color: '#e8f0ff',
         // 中文无空格场景下，启用 advanced wrap，确保多行换行
@@ -1431,10 +2019,19 @@ export class BattleScene extends Phaser.Scene {
 
       card.on('pointerdown', () => {
         this.skills.levelUp(c.id)
-        this.pausedForLevelUp = false
         overlay.destroy(true)
         this.skillUi = null
         this.updateSkillsBar() // 更新技能状态栏
+        
+        // 检查是否还有待处理的升级
+        if (this.pendingLevelUps > 0) {
+          // 还有待升级，继续显示下一个技能选择界面
+          this.onLevelUp()
+        } else {
+          // 所有升级完成，恢复游戏
+          this.pausedForLevelUp = false
+          this.resumeAllAnimations()
+        }
         // 主武器信息现在在canvas中自动渲染，不需要手动恢复
       })
 
@@ -1623,6 +2220,8 @@ export class BattleScene extends Phaser.Scene {
         attackIntervalSec: def.attackIntervalSec,
         rangedStopDistance: def.rangedStopDistance ?? 0,
         shotSpeed: def.shotSpeed ?? 140,
+        size: def.size,
+        elementResistance: def.elementResistance,
       }),
     )
   }
@@ -1663,6 +2262,8 @@ export class BattleScene extends Phaser.Scene {
         attackIntervalSec: def.attackIntervalSec,
         rangedStopDistance: def.rangedStopDistance ?? 0,
         shotSpeed: def.shotSpeed ?? 140,
+        size: def.size,
+        elementResistance: def.elementResistance,
       }),
     )
     
@@ -1679,7 +2280,7 @@ export class BattleScene extends Phaser.Scene {
   private showBossWarning(bossName: string) {
     const text = this.add
       .text(this.scale.width / 2, this.scale.height / 2, `${bossName} 出现！`, {
-        fontFamily: 'monospace',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '24px',
         color: '#ff6b6b',
         stroke: '#000000',
@@ -1723,7 +2324,7 @@ export class BattleScene extends Phaser.Scene {
     
     // 标题
     const title = this.add.text(0, -80, '完成20波！', {
-      fontFamily: 'monospace',
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
       fontSize: '28px',
       color: '#6bff95',
       stroke: '#000000',
@@ -1733,7 +2334,7 @@ export class BattleScene extends Phaser.Scene {
     
     // 提示文字
     const hint = this.add.text(0, -30, '是否继续无尽模式？', {
-      fontFamily: 'monospace',
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
       fontSize: '18px',
       color: '#e8f0ff',
       stroke: '#000000',
@@ -1757,7 +2358,7 @@ export class BattleScene extends Phaser.Scene {
         this.syncHud()
       })
     const continueText = this.add.text(-80, 40, '继续', {
-      fontFamily: 'monospace',
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
       fontSize: '16px',
       color: '#000000',
     }).setOrigin(0.5)
@@ -1771,7 +2372,7 @@ export class BattleScene extends Phaser.Scene {
         container.destroy(true)
       })
     const endText = this.add.text(80, 40, '结束', {
-      fontFamily: 'monospace',
+      fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
       fontSize: '16px',
       color: '#ffffff',
     }).setOrigin(0.5)
@@ -1782,7 +2383,7 @@ export class BattleScene extends Phaser.Scene {
     this.pausedForLevelUp = true
     this.add
       .text(this.scale.width / 2, this.scale.height / 2, 'VICTORY!', {
-        fontFamily: 'monospace',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '32px',
         color: '#6bff95',
         stroke: '#000000',
@@ -1795,7 +2396,7 @@ export class BattleScene extends Phaser.Scene {
     this.pausedForLevelUp = true
     this.add
       .text(this.scale.width / 2, this.scale.height / 2, 'GAME OVER', {
-        fontFamily: 'monospace',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
         fontSize: '26px',
         color: '#ff6b6b',
       })
@@ -1853,6 +2454,77 @@ export class BattleScene extends Phaser.Scene {
       keep.push(e)
     }
     this.explosions = keep
+  }
+
+  /**
+   * 更新燃油弹抛掷物（抛物线运动）
+   */
+  private stepNapalmProjectiles(dtSec: number) {
+    const gravity = 400  // 重力加速度（像素/秒²）
+    const keep: typeof this.napalmProjectiles = []
+    
+    for (const proj of this.napalmProjectiles) {
+      // 更新飞行时间
+      proj.flightTime += dtSec
+      
+      // 获取起始位置（从玩家位置）
+      const startX = this.player.x
+      const startY = this.player.y - 8
+      
+      // 更新位置（抛物线运动）
+      // 使用正确的抛物线公式：x = x0 + vx*t, y = y0 + vy*t - 0.5*g*t^2
+      proj.x = startX + proj.vx * proj.flightTime
+      proj.y = startY + proj.vy * proj.flightTime - 0.5 * gravity * proj.flightTime * proj.flightTime
+      
+      // 更新图形位置
+      proj.gfx.setPosition(proj.x, proj.y)
+      
+      // 更新轨迹线（动态更新，显示已飞行的路径）
+      proj.trailGfx.clear()
+      proj.trailGfx.lineStyle(1, 0xff6b00, 0.3)
+      const steps = Math.max(2, Math.ceil(proj.flightTime * 30))  // 每帧一步
+      let firstPoint = true
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps
+        const time = proj.flightTime * t
+        // 使用正确的抛物线公式：y = y0 + vy*t - 0.5*g*t^2
+        const px = startX + proj.vx * time
+        const py = startY + proj.vy * time - 0.5 * gravity * time * time
+        if (firstPoint) {
+          proj.trailGfx.moveTo(px, py)
+          firstPoint = false
+        } else {
+          proj.trailGfx.lineTo(px, py)
+        }
+      }
+      proj.trailGfx.strokePath()
+      
+      // 检查是否落地（飞行时间达到0.8秒或超出屏幕）
+      const hasLanded = proj.flightTime >= 0.8 || proj.y > this.scale.height || proj.y < -50
+      
+      if (hasLanded) {
+        // 落地：使用目标位置创建燃烧区域（确保在目标位置爆炸）
+        const finalX = proj.flightTime >= 0.8 ? proj.targetX : proj.x
+        const finalY = proj.flightTime >= 0.8 ? proj.targetY : proj.y
+        this.createNapalmBurnZone(
+          finalX,
+          finalY,
+          proj.radius,
+          proj.ttl,
+          proj.pctPerSec,
+          proj.initialDmg,
+          proj.lv
+        )
+        
+        // 清理图形
+        proj.gfx.destroy()
+        proj.trailGfx.destroy()
+      } else {
+        keep.push(proj)
+      }
+    }
+    
+    this.napalmProjectiles = keep
   }
 
   private stepBurnZones(dtSec: number) {
@@ -1963,7 +2635,7 @@ export class BattleScene extends Phaser.Scene {
       
       // 撞击时生成火花
       if (c.hit.size > 0 && Math.random() < 0.3) {
-        this.spawnFireParticles(c.x, c.y, 8, 3)
+        this.effectManager.spawnFireParticles(c.x, c.y, 8, 3)
       }
 
       // 超出屏幕上方或时间到则销毁
@@ -2043,7 +2715,7 @@ export class BattleScene extends Phaser.Scene {
         }
       }
       // 增强爆炸特效：多层爆炸 + 火焰粒子
-      this.spawnExplosion(b.x, b.y, b.r, 0xff6b6b)
+      this.effectManager.spawnExplosion(b.x, b.y, b.r, 0xff6b6b)
       this.spawnFireParticles(b.x, b.y, b.r, 12)
     }
     this.pendingBombs = keep
@@ -2057,7 +2729,9 @@ export class BattleScene extends Phaser.Scene {
       // 计算伤害（基于技能等级，每0.5秒造成一次伤害）
       // 伤害值：基础15 + 等级*5，每秒伤害
       const lv = this.skills.getLevel('ice_storm')
-      const dps = (15 + lv * 5) * this.skills.getDamageMult('ice_storm')
+      const weaponFactor = this.getWeaponDamageFactor('ice_storm', lv)
+      const baseDps = 15 + lv * 5
+      const dps = (baseDps + weaponFactor * this.player.damage) * this.skills.getDamageMult('ice_storm')
       const dmgPerTick = dps * dtSec
       
       for (const z of this.zombies) {
@@ -2082,18 +2756,19 @@ export class BattleScene extends Phaser.Scene {
     this.iceFogs = keep
   }
 
-  private stepEmpWaves(dtSec: number) {
-    const keep: typeof this.empWaves = []
-    for (const e of this.empWaves) {
-      e.ttl -= dtSec
-      e.gfx.setAlpha(Math.max(0, e.ttl / 0.22))
-      if (e.ttl <= 0) {
-        e.gfx.destroy()
+  private stepEmpStrikes(dtSec: number) {
+    const keep: typeof this.empStrikes = []
+    for (const strike of this.empStrikes) {
+      strike.ttl -= dtSec
+      const alpha = Math.max(0, strike.ttl / 0.3)
+      strike.gfx.setAlpha(alpha)
+      if (strike.ttl <= 0) {
+        strike.gfx.destroy()
         continue
       }
-      keep.push(e)
+      keep.push(strike)
     }
-    this.empWaves = keep
+    this.empStrikes = keep
   }
 
   private stepChainFx(dtSec: number) {
@@ -2158,15 +2833,28 @@ export class BattleScene extends Phaser.Scene {
   private pickZombieKind(): ZombieKind {
     // 基于波次选择僵尸类型，而不是时间
     // 早期波次主要是walker，逐渐增加brute和spitter
+    // 从第5波开始，有20%概率出现属性抗性僵尸
     const waveProgress = (this.currentWave - 1) / (this.maxWaves - 1)
     const wSpitter = Phaser.Math.Clamp(waveProgress * 0.4, 0, 0.38)
     const wBrute = Phaser.Math.Clamp(waveProgress * 0.3, 0, 0.28)
     const wWalker = Math.max(0.05, 1 - wSpitter - wBrute)
+    
+    // 从第5波开始，有20%概率出现属性抗性僵尸
+    const wResistant = this.currentWave >= 5 ? 0.2 : 0
+    const totalBase = wWalker + wBrute + wSpitter
+    const total = totalBase + wResistant
 
-    const r = Math.random() * (wWalker + wBrute + wSpitter)
+    const r = Math.random() * total
     if (r < wWalker) return 'walker'
     if (r < wWalker + wBrute) return 'brute'
-    return 'spitter'
+    if (r < wWalker + wBrute + wSpitter) return 'spitter'
+    
+    // 属性抗性僵尸（随机选择一种）
+    const resistantKinds: ZombieKind[] = [
+      'wind_resistant', 'fire_resistant', 'electric_resistant',
+      'energy_resistant', 'ice_resistant', 'physical_resistant'
+    ]
+    return resistantKinds[Math.floor(Math.random() * resistantKinds.length)]
   }
 
   private expForZombie(kind: ZombieKind) {
@@ -2303,6 +2991,12 @@ export class BattleScene extends Phaser.Scene {
           speedStat.textContent = `速度: ${def.baseSpeed} px/s`
         }
       }
+
+      // 更新体型显示（体型不会随波次变化，始终显示基础值）
+      const sizeStat = item.querySelector('.bestiary-item-stats .bestiary-item-stat:nth-child(3)')
+      if (sizeStat) {
+        sizeStat.textContent = `体型: ${def.size}`
+      }
     })
   }
 
@@ -2313,9 +3007,37 @@ export class BattleScene extends Phaser.Scene {
     this.weaponInfoGfx.clear() // 不再绘制背景和边框，只清理
     
     const bulletSpreadLevel = this.skills.getLevel('bullet_spread')
-    const bulletCount = this.skills.bulletCount
+    const rapidFireLevel = this.skills.rapidFireCount
+    const spreadBulletCount = 1 + bulletSpreadLevel  // 散射子弹数：0级=1发，1级=2发...
+    const burstCount = 1 + rapidFireLevel  // 连发数量：0级=1发，1级=2发...
     const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
-    const damage = this.player.damage
+    // 计算实际伤害（应用增伤倍率）
+    const damage = this.player.damage * this.skills.weaponDamageMult
+    
+    // 计算射速（每秒射击次数）
+    const fireRateMult = this.skills.fireRateMult
+    const actualFireInterval = this.player.fireIntervalSec / fireRateMult
+    const fireRate = (1 / actualFireInterval).toFixed(1)
+    
+    // 射程
+    const range = Math.round(this.player.range)
+    
+    // 分裂信息
+    const split2Count = this.skills.split2Count
+    const split4Count = this.skills.split4Count
+    let splitText = '无'
+    if (split4Count > 0) {
+      splitText = `1→4 (Lv.${split4Count})`
+    } else if (split2Count > 0) {
+      splitText = `1→2 (Lv.${split2Count})`
+    }
+    
+    // 穿透信息
+    const pierce = this.skills.weaponPierce
+    
+    // 暴击信息
+    const critChance = (this.player.critChance * 100).toFixed(1)  // 转换为百分比，保留1位小数
+    const critDamageMult = (this.player.critDamageMult * 100).toFixed(0)  // 转换为百分比
     
     // 移动端检测
     const isMobile = this.scale.width <= 768
@@ -2326,6 +3048,7 @@ export class BattleScene extends Phaser.Scene {
     const y = isMobile ? 100 : 120
     const lineHeight = isSmallMobile ? 10 : (isMobile ? 12 : 14)
     const fontSize = isSmallMobile ? 8 : (isMobile ? 9 : 10)
+    const normalFont = 'SimSun, 宋体, serif'  // 使用清晰的宋体
     
     // 清理旧文本
     this.weaponInfoTexts.forEach(t => t.destroy())
@@ -2337,8 +3060,9 @@ export class BattleScene extends Phaser.Scene {
     const title = this.add.text(x, currentY, '主武器', {
       fontSize: `${fontSize + 1}px`,
       color: '#6bff95',
-      fontFamily: 'monospace',
+      fontFamily: normalFont,
       fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
     }).setOrigin(0, 0).setDepth(999)
     this.weaponInfoTexts.push(title)
     currentY += lineHeight + 2
@@ -2348,17 +3072,21 @@ export class BattleScene extends Phaser.Scene {
     const spreadObj = this.add.text(x, currentY, spreadText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
-      fontFamily: 'monospace',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
     }).setOrigin(0, 0).setDepth(999)
     this.weaponInfoTexts.push(spreadObj)
     currentY += lineHeight
     
     // 连发信息
-    const countText = `连发: ${bulletCount}`
+    const countText = `连发: ${burstCount}`
     const countObj = this.add.text(x, currentY, countText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
-      fontFamily: 'monospace',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
     }).setOrigin(0, 0).setDepth(999)
     this.weaponInfoTexts.push(countObj)
     currentY += lineHeight
@@ -2368,9 +3096,69 @@ export class BattleScene extends Phaser.Scene {
     const damageObj = this.add.text(x, currentY, damageText, {
       fontSize: `${fontSize}px`,
       color: '#e8f0ff',
-      fontFamily: 'monospace',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
     }).setOrigin(0, 0).setDepth(999)
     this.weaponInfoTexts.push(damageObj)
+    currentY += lineHeight
+    
+    // 射速信息
+    const fireRateText = `射速: ${fireRate}/s`
+    const fireRateObj = this.add.text(x, currentY, fireRateText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(fireRateObj)
+    currentY += lineHeight
+    
+    // 射程信息
+    const rangeText = `射程: ${range}px`
+    const rangeObj = this.add.text(x, currentY, rangeText, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(rangeObj)
+    currentY += lineHeight
+    
+    // 分裂信息
+    const splitTextObj = this.add.text(x, currentY, `分裂: ${splitText}`, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(splitTextObj)
+    currentY += lineHeight
+    
+    // 穿透信息
+    const pierceTextObj = this.add.text(x, currentY, `穿透: ${pierce}`, {
+      fontSize: `${fontSize}px`,
+      color: '#e8f0ff',
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(pierceTextObj)
+    currentY += lineHeight
+    
+    // 暴击信息
+    const critText = `暴击: ${critChance}% (${critDamageMult}%伤害)`
+    const critObj = this.add.text(x, currentY, critText, {
+      fontSize: `${fontSize}px`,
+      color: '#ffd700',  // 金色，突出暴击属性
+      fontFamily: normalFont,
+      fontStyle: 'bold',
+      resolution: 2,  // 高清渲染（2倍分辨率）
+    }).setOrigin(0, 0).setDepth(999)
+    this.weaponInfoTexts.push(critObj)
   }
 
   /**
@@ -2439,7 +3227,8 @@ export class BattleScene extends Phaser.Scene {
         break
       }
       case 'tornado': {
-        const dps = (3 + lv * 1.2) * this.skills.getDamageMult('tornado')
+        // 提高龙卷风DPS：基础值从3提高到15，每级从1.2提高到6
+        const dps = (15 + lv * 6) * this.skills.getDamageMult('tornado')
         const cd = this.baseCooldown('tornado', lv) * this.skills.getCooldownMult('tornado')
         const radius = (18 + lv * 4) * this.skills.getRadiusMult('tornado')
         const duration = (2.6 + lv * 0.4) * this.skills.getDurationMult('tornado')
@@ -2545,7 +3334,8 @@ export class BattleScene extends Phaser.Scene {
         break
       }
       case 'bullet_spread': {
-        const count = this.skills.bulletCount
+        const spreadLevel = this.skills.getLevel('bullet_spread')
+        const count = 1 + spreadLevel  // 散射子弹数
         const spreadDeg = (this.skills.spreadRad * 180 / Math.PI).toFixed(0)
         stats.push(`子弹数: ${count}`, `散射角: ${spreadDeg}°`)
         break
@@ -2915,39 +3705,7 @@ export class BattleScene extends Phaser.Scene {
   /**
    * 绘制锯齿状闪电路径（用于闪电链特效）
    */
-  private drawLightningPath(g: Phaser.GameObjects.Graphics, startX: number, startY: number, points: { x: number; y: number }[]) {
-    if (points.length === 0) return
-    
-    g.beginPath()
-    let lastX = startX
-    let lastY = startY
-    
-    for (const p of points) {
-      // 在两点之间添加锯齿状路径
-      const dx = p.x - lastX
-      const dy = p.y - lastY
-      const dist = Math.hypot(dx, dy)
-      const steps = Math.max(2, Math.floor(dist / 8))
-      
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps
-        const x = lastX + dx * t
-        const y = lastY + dy * t
-        // 添加随机偏移，形成锯齿效果
-        const offsetX = (Math.random() - 0.5) * 4
-        const offsetY = (Math.random() - 0.5) * 4
-        if (i === 0) {
-          g.moveTo(x + offsetX, y + offsetY)
-        } else {
-          g.lineTo(x + offsetX, y + offsetY)
-        }
-      }
-      
-      lastX = p.x
-      lastY = p.y
-    }
-    g.strokePath()
-  }
+  // drawLightningPath 已移至 EffectManager
 
   /**
    * 生成飞行轨迹动画
@@ -3006,46 +3764,60 @@ export class BattleScene extends Phaser.Scene {
    * @param startY 起始Y坐标
    * @param baseAngle 基础角度（主子弹方向）
    * @param baseDamage 基础伤害值
+   * @param hitTarget 被命中的目标（次级子弹会避开它，除非体型>3）
    */
-  private spawnBulletSplitImmediate(startX: number, startY: number, baseAngle: number, baseDamage: number) {
+  private spawnBulletSplitImmediate(startX: number, startY: number, baseAngle: number, baseDamage: number, hitTarget?: Zombie) {
     const split2Count = this.skills.split2Count
     const split4Count = this.skills.split4Count
     
-    // 分裂成2发（1->2）：向固定方向发射2发
-    if (split2Count > 0) {
-      for (let level = 0; level < split2Count; level++) {
-        // 每级发射2发，垂直于主子弹方向，左右各一发
-        for (let i = 0; i < 2; i++) {
-          const splitAngle = baseAngle + (i === 0 ? -Math.PI / 2 : Math.PI / 2)
-          const speed = 100  // 次级子弹速度稍慢
-          const vx = Math.cos(splitAngle) * speed
-          const vy = Math.sin(splitAngle) * speed
-          
-          // 次级子弹伤害继承主子弹的60%
-          const secondaryDamage = baseDamage * 0.6
-          
-          this.secondaryBullets.push(
-            new SecondaryBullet(this, {
-              x: startX,
-              y: startY,
-              vx,
-              vy,
-              damage: secondaryDamage,
-              maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
-              splitLevel: 0,
-            })
-          )
-        }
+    // 获取被命中目标的ID（如果存在且体型<=3，次级子弹会避开它）
+    const excludedTargetId = hitTarget && hitTarget.size <= 3 ? hitTarget.id : undefined
+    
+    // 计算分裂位置偏移：让次级子弹从稍微分散的位置出发，避免重叠
+    // 根据目标体型调整偏移距离，体型越大偏移越大
+    const splitOffsetRadius = hitTarget ? Math.max(hitTarget.size * 4, 10) : 10
+    
+    // 查找附近的敌人，用于优先朝向敌人方向分裂
+    const nearbyZombies: Array<{ zombie: Zombie, angle: number, distance: number }> = []
+    const searchRadius = this.player.range * 0.8  // 搜索半径为主武器射程的80%
+    
+    for (const z of this.zombies) {
+      if (z.hp <= 0 || !z.isAlive()) continue
+      if (excludedTargetId !== undefined && z.id === excludedTargetId && z.size <= 3) continue
+      
+      const dx = z.x - startX
+      const dy = z.y - startY
+      const distance = Math.hypot(dx, dy)
+      
+      if (distance <= searchRadius && distance > 0) {
+        const angle = Math.atan2(dy, dx)
+        nearbyZombies.push({ zombie: z, angle, distance })
       }
     }
     
-    // 分裂成4发（1->4）：向固定方向发射4发
+    // 优先使用 split4Count（如果已解锁），否则使用 split2Count
+    // 每级增加分裂次数（每级+1次分裂机会）
     if (split4Count > 0) {
+      // 1->4：向4个方向分裂，每级+1次分裂
       for (let level = 0; level < split4Count; level++) {
-        // 每级发射4发，均匀分布在360度
+        // 计算4个基础分裂方向
+        const baseSplitAngles: number[] = []
         for (let i = 0; i < 4; i++) {
-          const splitAngle = baseAngle + (Math.PI * 2 / 4) * i
-          const speed = 100  // 次级子弹速度稍慢
+          baseSplitAngles.push(baseAngle + (Math.PI * 2 / 4) * i)
+        }
+        
+        // 如果有附近敌人，调整分裂方向优先朝向敌人
+        const adjustedAngles = this.adjustSplitAnglesToTargets(baseSplitAngles, nearbyZombies, startX, startY)
+        
+        // 每次分裂成4发
+        for (let i = 0; i < 4; i++) {
+          const splitAngle = adjustedAngles[i]
+          // 分裂位置稍微偏移：沿着分裂方向的反方向偏移，让子弹从目标边缘出发
+          const offsetAngle = splitAngle + Math.PI  // 反方向偏移
+          const offsetX = startX + Math.cos(offsetAngle) * splitOffsetRadius
+          const offsetY = startY + Math.sin(offsetAngle) * splitOffsetRadius
+          
+          const speed = BattleScene.SECONDARY_BULLET_SPEED
           const vx = Math.cos(splitAngle) * speed
           const vy = Math.sin(splitAngle) * speed
           
@@ -3054,18 +3826,134 @@ export class BattleScene extends Phaser.Scene {
           
           this.secondaryBullets.push(
             new SecondaryBullet(this, {
-              x: startX,
-              y: startY,
+              x: offsetX,
+              y: offsetY,
               vx,
               vy,
               damage: secondaryDamage,
               maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
               splitLevel: 0,
+              excludedTargetId,
+            })
+          )
+        }
+      }
+    } else if (split2Count > 0) {
+      // 1->2：向2个方向分裂，每级+1次分裂
+      for (let level = 0; level < split2Count; level++) {
+        // 计算2个基础分裂方向（垂直于主子弹方向）
+        const baseSplitAngles: number[] = [
+          baseAngle - Math.PI / 2,
+          baseAngle + Math.PI / 2
+        ]
+        
+        // 如果有附近敌人，调整分裂方向优先朝向敌人
+        const adjustedAngles = this.adjustSplitAnglesToTargets(baseSplitAngles, nearbyZombies, startX, startY)
+        
+        // 每次分裂成2发
+        for (let i = 0; i < 2; i++) {
+          const splitAngle = adjustedAngles[i]
+          // 分裂位置稍微偏移：沿着分裂方向的反方向偏移，让子弹从目标边缘出发
+          const offsetAngle = splitAngle + Math.PI  // 反方向偏移
+          const offsetX = startX + Math.cos(offsetAngle) * splitOffsetRadius
+          const offsetY = startY + Math.sin(offsetAngle) * splitOffsetRadius
+          
+          const speed = BattleScene.SECONDARY_BULLET_SPEED
+          const vx = Math.cos(splitAngle) * speed
+          const vy = Math.sin(splitAngle) * speed
+          
+          // 次级子弹伤害继承主子弹的60%
+          const secondaryDamage = baseDamage * 0.6
+          
+          this.secondaryBullets.push(
+            new SecondaryBullet(this, {
+              x: offsetX,
+              y: offsetY,
+              vx,
+              vy,
+              damage: secondaryDamage,
+              maxDistance: this.player.range * 0.6,  // 次级子弹射程为60%
+              splitLevel: 0,
+              excludedTargetId,
             })
           )
         }
       }
     }
+  }
+  
+  /**
+   * 调整分裂角度，每个方向独立寻找最近的敌人
+   * @param baseAngles 基础分裂角度数组
+   * @param nearbyZombies 附近的敌人列表
+   * @param startX 分裂起始X坐标
+   * @param startY 分裂起始Y坐标
+   * @returns 调整后的角度数组
+   */
+  private adjustSplitAnglesToTargets(
+    baseAngles: number[],
+    nearbyZombies: Array<{ zombie: Zombie, angle: number, distance: number }>,
+    startX: number,
+    startY: number
+  ): number[] {
+    if (nearbyZombies.length === 0) {
+      // 没有敌人，使用基础角度
+      return baseAngles
+    }
+    
+    // 按距离排序，优先考虑近的敌人
+    const sortedZombies = [...nearbyZombies].sort((a, b) => a.distance - b.distance)
+    
+    // 为每个分裂方向独立寻找最近的敌人
+    const adjustedAngles: number[] = []
+    const usedZombieIds = new Set<number>()  // 已分配的敌人ID，避免重复分配
+    
+    for (const baseAngle of baseAngles) {
+      let bestAngle = baseAngle
+      let bestDistance = Infinity
+      let bestZombieId: number | null = null
+      
+      // 在该方向的扇形区域内寻找最近的敌人
+      // 扇形角度范围：基础角度 ± 90度（每个方向覆盖180度范围）
+      const sectorRange = Math.PI / 2  // 90度范围
+      
+      for (const zombieInfo of sortedZombies) {
+        // 跳过已分配的敌人
+        if (usedZombieIds.has(zombieInfo.zombie.id)) continue
+        
+        const zombieAngle = zombieInfo.angle
+        const angleDiff = Math.abs(this.normalizeAngle(zombieAngle - baseAngle))
+        
+        // 检查敌人是否在该方向的扇形区域内
+        if (angleDiff <= sectorRange) {
+          // 找到该方向最近的敌人
+          if (zombieInfo.distance < bestDistance) {
+            bestDistance = zombieInfo.distance
+            bestAngle = zombieAngle
+            bestZombieId = zombieInfo.zombie.id
+          }
+        }
+      }
+      
+      // 如果找到了该方向的敌人，使用敌人方向；否则使用基础角度
+      if (bestZombieId !== null) {
+        adjustedAngles.push(bestAngle)
+        usedZombieIds.add(bestZombieId)  // 标记该敌人已被分配
+      } else {
+        adjustedAngles.push(baseAngle)
+      }
+    }
+    
+    return adjustedAngles
+  }
+  
+  /**
+   * 将角度标准化到 [-π, π] 范围
+   */
+  private normalizeAngle(angle: number): number {
+    while (angle > Math.PI) angle -= Math.PI * 2
+    while (angle < -Math.PI) angle += Math.PI * 2
+    return angle
   }
 
   /**
@@ -3144,22 +4032,7 @@ export class BattleScene extends Phaser.Scene {
   /**
    * 生成冻结特效（用于干冰弹冻结敌人）
    */
-  private spawnFreezeEffect(x: number, y: number) {
-    const gfx = this.add.graphics()
-    gfx.lineStyle(2, 0x6bffea, 0.9)
-    gfx.strokeCircle(x, y, 8)
-    gfx.fillStyle(0xffffff, 0.6)
-    gfx.fillCircle(x, y, 3)
-    
-    this.tweens.add({
-      targets: gfx,
-      scaleX: 1.5,
-      scaleY: 1.5,
-      alpha: 0,
-      duration: 400,
-      onComplete: () => gfx.destroy(),
-    })
-  }
+  // spawnFreezeEffect 已移至 EffectManager
 
   /**
    * 生成锁定标记特效（用于高能射线、制导激光）
@@ -3366,25 +4239,7 @@ export class BattleScene extends Phaser.Scene {
   /**
    * 生成感电特效（用于电磁穿刺、跃迁电子）
    */
-  private spawnShockEffect(x: number, y: number) {
-    const gfx = this.add.graphics()
-    // 电光闪烁
-    for (let i = 0; i < 3; i++) {
-      const angle = (Math.PI * 2 / 3) * i
-      const len = 6 + Math.random() * 4
-      const endX = x + Math.cos(angle) * len
-      const endY = y + Math.sin(angle) * len
-      gfx.lineStyle(2, 0xffff00, 0.9)
-      gfx.lineBetween(x, y, endX, endY)
-    }
-    
-    this.tweens.add({
-      targets: gfx,
-      alpha: 0,
-      duration: 150,
-      onComplete: () => gfx.destroy(),
-    })
-  }
+  // spawnShockEffect 已移至 EffectManager
 
   /**
    * 生成极光粒子（用于极光技能）
@@ -3407,4 +4262,14 @@ export class BattleScene extends Phaser.Scene {
       })
     }
   }
+
+  /**
+   * 显示伤害数字
+   * @param x X坐标
+   * @param y Y坐标
+   * @param damage 伤害值
+   */
+  // showDamageNumber 和 updateDamageNumbers 已移至 EffectManager
+
+  // calculateDamageWithCritAndTalents, applyTalentEffectsOnHit, teleportZombieToSpawn, instakillZombie, updateTeleportAnimations 已移至 DamageCalculator 和 TalentManager
 }

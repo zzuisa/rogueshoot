@@ -17,7 +17,8 @@ export type BulletConfig = Readonly<{
   vx: number         // X方向速度（像素/秒）
   vy: number         // Y方向速度（像素/秒）
   damage: number     // 伤害值
-  maxDistance: number // 最大射程（像素）
+  maxDistance?: number // 最大射程（像素，可选，默认无限制）
+  pierce?: number    // 穿透数量（默认1，表示命中即消失）
 }>
 
 export class Bullet {
@@ -29,8 +30,12 @@ export class Bullet {
   vy: number
   /** 伤害值 */
   damage: number
-  /** 最大射程（像素） */
-  readonly maxDistance: number
+  /** 最大射程（像素，可选，默认无限制） */
+  readonly maxDistance?: number
+  /** 穿透数量（默认1，表示命中即消失） */
+  pierce: number
+  /** 已穿透的敌人ID集合（用于避免重复命中同一敌人） */
+  piercedZombies: Set<number>
   /** 起始X坐标（用于计算飞行距离） */
   private readonly startX: number
   /** 起始Y坐标（用于计算飞行距离） */
@@ -45,6 +50,8 @@ export class Bullet {
     this.vy = cfg.vy
     this.damage = cfg.damage
     this.maxDistance = cfg.maxDistance
+    this.pierce = cfg.pierce ?? 1  // 默认穿透1（命中即消失）
+    this.piercedZombies = new Set()
     // 创建Phaser矩形图形（3x3像素，黄色）
     this.go = scene.add.rectangle(cfg.x, cfg.y, 3, 3, 0xffe66b, 1)
     this.startX = cfg.x
@@ -84,9 +91,12 @@ export class Bullet {
 
   /**
    * 检查是否超出射程
-   * @returns 如果飞行距离超过最大射程，返回true
+   * @returns 如果飞行距离超过最大射程，返回true（如果没有设置最大射程，返回false）
    */
   isOutOfRange() {
+    if (this.maxDistance === undefined) {
+      return false  // 无最大射程限制
+    }
     const d = Math.hypot(this.go.x - this.startX, this.go.y - this.startY)
     return d >= this.maxDistance
   }

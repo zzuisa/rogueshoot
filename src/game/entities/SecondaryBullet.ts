@@ -21,6 +21,7 @@ export type SecondaryBulletConfig = Readonly<{
   maxDistance: number // 最大射程（像素）
   parent?: SecondaryBullet | Bullet  // 父子弹（用于追踪分裂层级）
   splitLevel?: number  // 分裂层级（0=主子弹分裂，1=次级子弹分裂，以此类推）
+  excludedTargetId?: number  // 要避开的目标ID（体型<=3时不会命中同一目标）
 }>
 
 export class SecondaryBullet {
@@ -46,6 +47,8 @@ export class SecondaryBullet {
   readonly parent?: SecondaryBullet | Bullet
   /** 分裂层级 */
   readonly splitLevel: number
+  /** 要避开的目标ID（体型<=3时不会命中同一目标） */
+  readonly excludedTargetId?: number
 
   constructor(scene: Phaser.Scene, cfg: SecondaryBulletConfig) {
     this.vx = cfg.vx
@@ -54,6 +57,7 @@ export class SecondaryBullet {
     this.maxDistance = cfg.maxDistance
     this.parent = cfg.parent
     this.splitLevel = cfg.splitLevel ?? 0
+    this.excludedTargetId = cfg.excludedTargetId
     // 创建Phaser矩形图形（3x3像素，浅黄色，与主子弹区分）
     this.go = scene.add.rectangle(cfg.x, cfg.y, 3, 3, 0xffd700, 1)
     this.startX = cfg.x

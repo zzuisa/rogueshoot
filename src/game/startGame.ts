@@ -21,9 +21,9 @@ export function startGame(parentId: string) {
     parent: parentId,   // 父容器ID
     backgroundColor: '#0c0f14',  // 深色背景
     render: {
-      pixelArt: true,      // 像素风格（禁用平滑）
-      antialias: false,    // 禁用抗锯齿
-      roundPixels: true,   // 像素对齐（避免模糊）
+      pixelArt: false,     // 正常渲染（启用平滑）
+      antialias: true,     // 启用抗锯齿
+      roundPixels: false,  // 不强制像素对齐
     },
     scale: {
       mode: Phaser.Scale.FIT,              // 自适应缩放（保持宽高比）

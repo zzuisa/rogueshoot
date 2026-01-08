@@ -4,6 +4,7 @@
 import './style.css'
 import { startGame } from './game/startGame'
 import { ZOMBIE_TYPES } from './game/entities/zombieTypes'
+import { DAMAGE_TYPE_NAMES, DAMAGE_TYPE_COLORS } from './game/damage/DamageType'
 
 // 获取根容器元素
 const app = document.querySelector<HTMLDivElement>('#app')
@@ -42,6 +43,9 @@ app.innerHTML = `
       <span>调试：选择技能升级</span>
       <button id="debug-close" class="debug-close">×</button>
     </div>
+    <div class="debug-search-container">
+      <input type="text" id="debug-search-input" class="debug-search-input" placeholder="搜索技能名称或描述..." />
+    </div>
     <div id="debug-skill-list" class="debug-skill-list"></div>
   </div>
   <div id="version-info" class="version-info"></div>
@@ -58,6 +62,34 @@ if (bestiaryListEl) {
     const attackModeText = def.attackMode === 'melee' ? '近战' : '远程'
     const stopDistText = def.rangedStopDistance ? `停止距离: ${def.rangedStopDistance}px` : ''
     
+    // 属性抗性和弱点显示
+    let resistanceText = ''
+    let weaknessText = ''
+    if (def.elementResistance) {
+      const resistances = def.elementResistance.resistances
+      const weaknesses = def.elementResistance.weaknesses
+      
+      if (resistances && Object.keys(resistances).length > 0) {
+        const resItems = Object.entries(resistances).map(([type, value]) => {
+          const name = DAMAGE_TYPE_NAMES[type as keyof typeof DAMAGE_TYPE_NAMES]
+          const color = DAMAGE_TYPE_COLORS[type as keyof typeof DAMAGE_TYPE_COLORS]
+          const percent = Math.round(value * 100)
+          return `<span style="color: ${color}">${name}(${percent}%)</span>`
+        })
+        resistanceText = `<div class="bestiary-item-stat">抗性: ${resItems.join(', ')}</div>`
+      }
+      
+      if (weaknesses && Object.keys(weaknesses).length > 0) {
+        const weakItems = Object.entries(weaknesses).map(([type, value]) => {
+          const name = DAMAGE_TYPE_NAMES[type as keyof typeof DAMAGE_TYPE_NAMES]
+          const color = DAMAGE_TYPE_COLORS[type as keyof typeof DAMAGE_TYPE_COLORS]
+          const percent = Math.round(value * 100)
+          return `<span style="color: ${color}">${name}(+${percent}%)</span>`
+        })
+        weaknessText = `<div class="bestiary-item-stat">弱点: ${weakItems.join(', ')}</div>`
+      }
+    }
+    
     item.innerHTML = `
       <div class="bestiary-item-header">
         <div class="bestiary-item-color" style="background-color: ${colorHex}"></div>
@@ -66,10 +98,13 @@ if (bestiaryListEl) {
       <div class="bestiary-item-stats">
         <div class="bestiary-item-stat">生命: ${def.baseHp}</div>
         <div class="bestiary-item-stat">速度: ${def.baseSpeed} px/s</div>
+        <div class="bestiary-item-stat">体型: ${def.size}</div>
         <div class="bestiary-item-stat">攻击: ${def.attackDamage} (${attackModeText})</div>
         <div class="bestiary-item-stat">攻击间隔: ${def.attackIntervalSec.toFixed(1)}s</div>
         <div class="bestiary-item-stat">经验: ${def.exp}</div>
         ${stopDistText ? `<div class="bestiary-item-stat">${stopDistText}</div>` : ''}
+        ${resistanceText}
+        ${weaknessText}
       </div>
     `
     bestiaryListEl.appendChild(item)
@@ -203,8 +238,9 @@ const debugBtn = document.getElementById('debug-btn')
 const debugPanel = document.getElementById('debug-panel')
 const debugClose = document.getElementById('debug-close')
 const debugSkillList = document.getElementById('debug-skill-list')
+const debugSearchInput = document.getElementById('debug-search-input') as HTMLInputElement
 
-if (debugBtn && debugPanel && debugClose && debugSkillList) {
+if (debugBtn && debugPanel && debugClose && debugSkillList && debugSearchInput) {
   // 等待BattleScene创建
   const setupDebugPanel = () => {
     const battleScene = (window as any).battleScene
@@ -214,22 +250,52 @@ if (debugBtn && debugPanel && debugClose && debugSkillList) {
     }
     
     // 打开/关闭面板
-    debugBtn.addEventListener('click', () => {
-      const isVisible = debugPanel.style.display !== 'none'
-      if (isVisible) {
-        debugPanel.style.display = 'none'
-      } else {
-        updateDebugSkillList()
-        debugPanel.style.display = 'flex'
-      }
-    })
+      debugBtn.addEventListener('click', () => {
+        const isVisible = debugPanel.style.display !== 'none'
+        if (isVisible) {
+          debugPanel.style.display = 'none'
+        } else {
+          // 清空搜索框并更新列表
+          if (debugSearchInput) {
+            debugSearchInput.value = ''
+          }
+          updateDebugSkillList('')
+          debugPanel.style.display = 'flex'
+          // 聚焦搜索框
+          setTimeout(() => {
+            if (debugSearchInput) {
+              debugSearchInput.focus()
+            }
+          }, 100)
+        }
+      })
     
     debugClose.addEventListener('click', () => {
       debugPanel.style.display = 'none'
     })
     
+    // 模糊搜索函数
+    const fuzzyMatch = (text: string, query: string): boolean => {
+      if (!query) return true
+      const lowerText = text.toLowerCase()
+      const lowerQuery = query.toLowerCase()
+      
+      // 精确匹配
+      if (lowerText.includes(lowerQuery)) return true
+      
+      // 模糊匹配：检查查询字符串的每个字符是否按顺序出现在文本中
+      let textIndex = 0
+      for (let i = 0; i < lowerQuery.length; i++) {
+        const char = lowerQuery[i]
+        const foundIndex = lowerText.indexOf(char, textIndex)
+        if (foundIndex === -1) return false
+        textIndex = foundIndex + 1
+      }
+      return true
+    }
+    
     // 更新技能列表
-    const updateDebugSkillList = () => {
+    const updateDebugSkillList = (searchQuery: string = '') => {
       debugSkillList.innerHTML = ''
       
       // 导入技能定义
@@ -269,6 +335,12 @@ if (debugBtn && debugPanel && debugClose && debugSkillList) {
         // 显示主技能
         for (const [mainId, items] of Object.entries(mainSkills)) {
           const item = items[0]
+          
+          // 搜索过滤
+          if (searchQuery && !fuzzyMatch(item.name + item.desc, searchQuery)) {
+            continue
+          }
+          
           const div = document.createElement('div')
           div.className = `debug-skill-item ${item.isMaxLevel ? 'max-level' : ''}`
           div.innerHTML = `
@@ -283,7 +355,7 @@ if (debugBtn && debugPanel && debugClose && debugSkillList) {
               if (typeof battleScene.updateSkillsBar === 'function') {
                 battleScene.updateSkillsBar()
               }
-              updateDebugSkillList()
+              updateDebugSkillList(searchQuery)
             })
           }
           debugSkillList.appendChild(div)
@@ -305,6 +377,11 @@ if (debugBtn && debugPanel && debugClose && debugSkillList) {
           if (!mainSkillUnlocked) continue
           
           for (const item of items) {
+            // 搜索过滤
+            if (searchQuery && !fuzzyMatch(item.name + item.desc, searchQuery)) {
+              continue
+            }
+            
             const div = document.createElement('div')
             div.className = `debug-skill-item ${item.isMaxLevel ? 'max-level' : ''}`
             div.innerHTML = `
@@ -319,11 +396,27 @@ if (debugBtn && debugPanel && debugClose && debugSkillList) {
                 if (typeof battleScene.updateSkillsBar === 'function') {
                   battleScene.updateSkillsBar()
                 }
-                updateDebugSkillList()
+                updateDebugSkillList(searchQuery)
               })
             }
             debugSkillList.appendChild(div)
           }
+        }
+      })
+    }
+    
+    // 搜索输入框（使用外部变量）
+    if (debugSearchInput) {
+      debugSearchInput.addEventListener('input', (e) => {
+        const query = (e.target as HTMLInputElement).value.trim()
+        updateDebugSkillList(query)
+      })
+      
+      // 支持ESC键清空搜索
+      debugSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          debugSearchInput.value = ''
+          updateDebugSkillList('')
         }
       })
     }

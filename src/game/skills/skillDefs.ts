@@ -12,6 +12,7 @@ export type MainSkillId =
   | 'weapon_rapid_fire'  // 子弹连发
   | 'weapon_fire_rate'   // 提高射速
   | 'weapon_damage'      // 子弹增伤
+  | 'weapon_pierce'      // 子弹穿透
   | 'weapon_split_2'     // 子弹分裂（1->2）
   | 'weapon_split_4'     // 子弹分裂（1->4）
   | 'aurora'           // 极光
@@ -28,6 +29,9 @@ export type MainSkillId =
   | 'ice_storm'         // 冰暴发生器
   | 'emp_pierce'        // 电磁穿刺
   | 'chain_electron'    // 跃迁电子
+  | 'talent_teleport'   // 天赋：传送敌人
+  | 'talent_instakill'  // 天赋：秒杀小怪
+  | 'talent_crit_enhance' // 天赋：暴击增强
 
 /** 分支升级类型：5种可选的强化方向 */
 export type UpgradeKind = 'damage' | 'cooldown' | 'count' | 'radius' | 'duration'
@@ -39,6 +43,11 @@ export type UpgradeSkillId =
   | `${MainSkillId}_count`      // 数量/次数增加
   | `${MainSkillId}_radius`     // 范围扩大
   | `${MainSkillId}_duration`   // 持续时间延长
+  | 'emp_pierce_extra_1'        // 电磁穿刺：额外释放1个
+  | 'emp_pierce_extra_2'        // 电磁穿刺：额外释放2个
+  | 'emp_pierce_electric_damage' // 电磁穿刺：电磁增伤80%
+  | 'emp_pierce_explosion'      // 电磁穿刺：爆炸伤害
+  | 'emp_pierce_chain'          // 电磁穿刺：击杀后立即释放
 
 /** 所有技能ID（主技能 + 分支升级） */
 export type SkillId = MainSkillId | UpgradeSkillId
@@ -62,8 +71,8 @@ export type SkillDef = Readonly<{
   desc: string                   // 描述文本（支持多行）
   type: 'main' | 'upgrade'       // 类型：主技能 或 分支升级
   weight: number                 // 出现权重（用于随机抽取）
-  maxLevel: number               // 最大等级
-  requires?: MainSkillId         // 分支升级需要的主技能（仅分支技能需要）
+  maxLevel: number               // 最大等级（已废弃，使用SkillTree统一管理）
+  requires?: MainSkillId         // 分支升级需要的主技能（已废弃，使用SkillTree统一管理）
   upgradeKind?: UpgradeKind      // 分支升级类型（仅分支技能需要）
   range?: SkillRange             // 释放范围（仅主技能需要）
 }>
@@ -94,6 +103,7 @@ const MAIN_SKILL_NAMES: Record<MainSkillId, string> = {
   weapon_rapid_fire: '子弹连发',
   weapon_fire_rate: '提高射速',
   weapon_damage: '子弹增伤',
+  weapon_pierce: '子弹穿透',
   weapon_split_2: '子弹分裂（1→2）',
   weapon_split_4: '子弹分裂（1→4）',
   aurora: '极光',
@@ -110,6 +120,9 @@ const MAIN_SKILL_NAMES: Record<MainSkillId, string> = {
   ice_storm: '冰暴发生器',
   emp_pierce: '电磁穿刺',
   chain_electron: '跃迁电子',
+  talent_teleport: '传送敌人',
+  talent_instakill: '秒杀小怪',
+  talent_crit_enhance: '暴击增强',
 }
 
 /**
@@ -182,6 +195,7 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   weapon_rapid_fire: main('weapon_rapid_fire', '子弹连发', '每次射击射出多发子弹，提高输出频率。每级+1发。', 1.0, 5),
   weapon_fire_rate: main('weapon_fire_rate', '提高射速', '提高武器射击速度。每级+10%射速。', 1.0, 10),
   weapon_damage: main('weapon_damage', '子弹增伤', '提高子弹伤害。每级+60%伤害。', 1.0, 5),
+  weapon_pierce: main('weapon_pierce', '子弹穿透', '子弹可以穿透敌人。每级+1穿透。', 1.0, 5),
   weapon_split_2: main('weapon_split_2', '子弹分裂（1→2）', '子弹命中敌人后分裂成2发次级子弹。', 0.9, 3),
   weapon_split_4: main('weapon_split_4', '子弹分裂（1→4）', '子弹命中敌人后分裂成4发次级子弹。', 0.8, 3),
   
@@ -236,13 +250,18 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   // 范围：弧形，半径168px（最大），80%圆弧
   ice_storm: main('ice_storm', '冰暴发生器', '制造大面积冰雾，长时间群体冻结。\n半径: 120-168px | 持续: 4.0-7.6秒 | 冻结: 0.6-1.2秒 | 冷却: 11.5-6.0秒 | 数量: 1+', 0.85, 6, { type: 'arcRange', radius: 168, anglePercent: 0.8 }),
   
-  // 电磁穿刺：宽度18-30px，伤害20-56，感电倍率1.2-1.5倍，感电时间4.0-5.2秒，冷却9.5-5.0秒
-  // 范围：横向线段，宽度30px（最大），横跨屏幕（360px）
-  emp_pierce: main('emp_pierce', '电磁穿刺', '电磁波贯穿战线，造成感电并提高后续受伤。\n宽度: 18-30px | 伤害: 20-56 | 感电: 1.2-1.5倍伤害，4.0-5.2秒 | 冷却: 9.5-5.0秒', 0.85, 6, { type: 'line', length: 360, width: 30 }),
+  // 电磁穿刺：半径18-30px，伤害20-56，感电倍率1.2-1.5倍，感电时间4.0-5.2秒，冷却9.5-5.0秒，数量1+
+  // 范围：圆形，半径30px（最大）
+  emp_pierce: main('emp_pierce', '电磁穿刺', '随机雷劈敌人，优先近点目标，造成感电并提高后续受伤。\n半径: 18-30px | 伤害: 20-56 | 感电: 1.2-1.5倍伤害，4.0-5.2秒 | 冷却: 9.5-5.0秒 | 数量: 1+', 0.85, 6, { type: 'circle', radius: 30 }),
   
   // 跃迁电子：跳跃数3+，跳跃半径90-114px，伤害18-48，冷却6.2-2.8秒
   // 范围：弧形，半径114px（最大，跳跃范围），80%圆弧
   chain_electron: main('chain_electron', '跃迁电子', '电流在目标间弹跳，适合清理大规模低血量群体。\n跳跃数: 3+ | 跳跃半径: 90-114px | 伤害: 18-48 | 冷却: 6.2-2.8秒', 0.85, 6, { type: 'arcRange', radius: 114, anglePercent: 0.8 }),
+
+  // ===== 天赋系统（特殊技能，效果作用于任何技能）=====
+  talent_teleport: main('talent_teleport', '传送敌人', '命中敌方时 (1.2×等级)%概率 将敌人传送到刷怪点（按原来的路线返回，加上返回动画0.2s）。', 0.7, 5),
+  talent_instakill: main('talent_instakill', '秒杀小怪', '命中敌方时 (1×等级)%概率 将除boss外的小怪秒杀（添加秒杀特效）。', 0.7, 5),
+  talent_crit_enhance: main('talent_crit_enhance', '暴击增强', '暴击造成200%基础伤害 + 额外(2.5×等级)%最大生命值。', 0.7, 5),
 
   // ===== 分支升级（需要先解锁对应主技能）=====
   // 注意：根据技能特性，不是所有技能都需要所有5种升级类型
@@ -272,6 +291,12 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   weapon_damage_count: up('weapon_damage', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
   weapon_damage_radius: up('weapon_damage', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
   weapon_damage_duration: up('weapon_damage', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
+  
+  weapon_pierce_damage: up('weapon_pierce', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_pierce_cooldown: up('weapon_pierce', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_pierce_count: up('weapon_pierce', 'count', '数量/次数增加', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_pierce_radius: up('weapon_pierce', 'radius', '范围扩大', '武器强化技能不支持分支升级。', 0, 0),
+  weapon_pierce_duration: up('weapon_pierce', 'duration', '持续时间延长', '武器强化技能不支持分支升级。', 0, 0),
   
   weapon_split_2_damage: up('weapon_split_2', 'damage', '伤害增强', '武器强化技能不支持分支升级。', 0, 0),
   weapon_split_2_cooldown: up('weapon_split_2', 'cooldown', '冷却缩减', '武器强化技能不支持分支升级。', 0, 0),
@@ -375,6 +400,58 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   emp_pierce_count: up('emp_pierce', 'count', '数量/次数增加', '电磁穿刺不支持数量升级。', 0, 0), // 权重0，不会出现
   emp_pierce_radius: up('emp_pierce', 'radius', '宽度扩大', '扩大电磁穿刺的宽度（每级+12%，可叠加）。'),
   emp_pierce_duration: up('emp_pierce', 'duration', '感电时间延长', '延长电磁穿刺的感电持续时间（每级+15%，可叠加）。'),
+  
+  // 电磁穿刺特殊强化
+  emp_pierce_extra_1: {
+    id: 'emp_pierce_extra_1',
+    name: '额外释放1个',
+    desc: '电磁穿刺额外释放1个雷劈。',
+    type: 'upgrade',
+    weight: 0.7,
+    maxLevel: 1,
+    requires: 'emp_pierce',
+    upgradeKind: 'count',
+  },
+  emp_pierce_extra_2: {
+    id: 'emp_pierce_extra_2',
+    name: '额外释放2个',
+    desc: '电磁穿刺额外释放2个雷劈。',
+    type: 'upgrade',
+    weight: 0.6,
+    maxLevel: 1,
+    requires: 'emp_pierce',
+    upgradeKind: 'count',
+  },
+  emp_pierce_electric_damage: {
+    id: 'emp_pierce_electric_damage',
+    name: '电磁增伤80%',
+    desc: '电磁穿刺造成的伤害增加80%。',
+    type: 'upgrade',
+    weight: 0.7,
+    maxLevel: 1,
+    requires: 'emp_pierce',
+    upgradeKind: 'damage',
+  },
+  emp_pierce_explosion: {
+    id: 'emp_pierce_explosion',
+    name: '电磁爆炸',
+    desc: '电磁穿刺攻击时，在目标周围小范围造成爆炸伤害。',
+    type: 'upgrade',
+    weight: 0.7,
+    maxLevel: 1,
+    requires: 'emp_pierce',
+    upgradeKind: 'radius',
+  },
+  emp_pierce_chain: {
+    id: 'emp_pierce_chain',
+    name: '连锁雷劈',
+    desc: '电磁穿刺击杀敌人后会立即释放一次电磁穿刺。',
+    type: 'upgrade',
+    weight: 0.6,
+    maxLevel: 1,
+    requires: 'emp_pierce',
+    upgradeKind: 'count',
+  },
 
   // 跃迁电子：需要伤害、冷却、数量、范围，不需要持续时间
   chain_electron_damage: up('chain_electron', 'damage', '伤害增强', '提升跃迁电子的伤害（每级+20%，可叠加）。'),
@@ -382,6 +459,25 @@ export const SKILL_DEFS: Record<SkillId, SkillDef> = {
   chain_electron_count: up('chain_electron', 'count', '跳跃数增加', '增加跃迁电子的跳跃次数（每级+1，可叠加）。'),
   chain_electron_radius: up('chain_electron', 'radius', '跳跃半径扩大', '扩大跃迁电子的跳跃半径（每级+12%，可叠加）。'),
   chain_electron_duration: up('chain_electron', 'duration', '持续时间延长', '跃迁电子不支持持续时间升级。', 0, 0), // 权重0，不会出现
+
+  // ===== 分支升级：天赋技能（天赋不支持分支升级）=====
+  talent_teleport_damage: up('talent_teleport', 'damage', '伤害增强', '天赋技能不支持分支升级。', 0, 0),
+  talent_teleport_cooldown: up('talent_teleport', 'cooldown', '冷却缩减', '天赋技能不支持分支升级。', 0, 0),
+  talent_teleport_count: up('talent_teleport', 'count', '数量/次数增加', '天赋技能不支持分支升级。', 0, 0),
+  talent_teleport_radius: up('talent_teleport', 'radius', '范围扩大', '天赋技能不支持分支升级。', 0, 0),
+  talent_teleport_duration: up('talent_teleport', 'duration', '持续时间延长', '天赋技能不支持分支升级。', 0, 0),
+
+  talent_instakill_damage: up('talent_instakill', 'damage', '伤害增强', '天赋技能不支持分支升级。', 0, 0),
+  talent_instakill_cooldown: up('talent_instakill', 'cooldown', '冷却缩减', '天赋技能不支持分支升级。', 0, 0),
+  talent_instakill_count: up('talent_instakill', 'count', '数量/次数增加', '天赋技能不支持分支升级。', 0, 0),
+  talent_instakill_radius: up('talent_instakill', 'radius', '范围扩大', '天赋技能不支持分支升级。', 0, 0),
+  talent_instakill_duration: up('talent_instakill', 'duration', '持续时间延长', '天赋技能不支持分支升级。', 0, 0),
+
+  talent_crit_enhance_damage: up('talent_crit_enhance', 'damage', '伤害增强', '天赋技能不支持分支升级。', 0, 0),
+  talent_crit_enhance_cooldown: up('talent_crit_enhance', 'cooldown', '冷却缩减', '天赋技能不支持分支升级。', 0, 0),
+  talent_crit_enhance_count: up('talent_crit_enhance', 'count', '数量/次数增加', '天赋技能不支持分支升级。', 0, 0),
+  talent_crit_enhance_radius: up('talent_crit_enhance', 'radius', '范围扩大', '天赋技能不支持分支升级。', 0, 0),
+  talent_crit_enhance_duration: up('talent_crit_enhance', 'duration', '持续时间延长', '天赋技能不支持分支升级。', 0, 0),
 }
 
 

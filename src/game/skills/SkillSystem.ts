@@ -7,6 +7,8 @@
  * - 判断技能是否可出现在升级选项中
  */
 import { SKILL_DEFS, type MainSkillId, type SkillDef, type SkillId, type UpgradeKind } from './skillDefs'
+import { SkillTree } from './SkillTree'
+import { SKILL_TREE_CONFIG } from './skillTreeConfig'
 
 /**
  * 升级时展示给玩家的技能选择项
@@ -20,6 +22,13 @@ export type SkillChoice = Readonly<{
 export class SkillSystem {
   /** 技能ID -> 当前等级 */
   private levels = new Map<SkillId, number>()
+  
+  /** 技能树管理器（统一管理依赖关系和最大等级） */
+  private readonly skillTree: SkillTree
+
+  constructor() {
+    this.skillTree = new SkillTree(SKILL_TREE_CONFIG)
+  }
 
   /**
    * 获取指定技能的当前等级（未解锁返回0）
@@ -32,17 +41,18 @@ export class SkillSystem {
    * 判断技能是否还能继续升级
    */
   canLevelUp(id: SkillId) {
-    const def = SKILL_DEFS[id]
-    return this.getLevel(id) < def.maxLevel
+    const currentLevel = this.getLevel(id)
+    const maxLevel = this.skillTree.getMaxLevel(id)
+    return currentLevel < maxLevel
   }
 
   /**
    * 升级指定技能（达到最大等级后不再升级）
    */
   levelUp(id: SkillId) {
-    const def = SKILL_DEFS[id]
     const current = this.getLevel(id)
-    if (current >= def.maxLevel) return
+    const maxLevel = this.skillTree.getMaxLevel(id)
+    if (current >= maxLevel) return
     this.levels.set(id, current + 1)
   }
 
@@ -153,6 +163,13 @@ export class SkillSystem {
   }
 
   /**
+   * 子弹穿透数量：默认1（命中即消失），每级+1穿透
+   */
+  get weaponPierce() {
+    return 1 + this.getLevel('weapon_pierce')
+  }
+
+  /**
    * 子弹分裂数量（1->2）：每级+1次分裂机会
    */
   get split2Count() {
@@ -169,15 +186,17 @@ export class SkillSystem {
   /**
    * 判断技能是否可出现在升级选项中
    * - 必须还能继续升级（未达最大等级）
-   * - 如果是分支技能，必须先解锁对应的主技能
+   * - 必须满足依赖关系（通过技能树检查）
    */
   isEligible(def: SkillDef) {
-    if (!this.canLevelUp(def.id)) return false
-    if (def.type === 'upgrade') {
-      if (!def.requires) return false
-      if (!this.isUnlocked(def.requires)) return false
-    }
-    return true
+    const currentLevel = this.getLevel(def.id)
+    
+    // 使用技能树统一检查是否可以解锁
+    return this.skillTree.canUnlock(
+      def.id,
+      currentLevel,
+      (id: SkillId) => this.getLevel(id)
+    )
   }
 
   /**

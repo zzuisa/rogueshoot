@@ -24,9 +24,15 @@ export class Player {
   /** 射击间隔（秒） */
   fireIntervalSec = 0.5
   /** 子弹伤害 */
-  damage = 5
+  damage = 15
   /** 武器射程（像素）- 调整此值可改变射程，例如：180（短）、220（默认）、280（长）、320（超长） */
   range = 520
+  
+  // ===== 暴击属性 =====
+  /** 暴击率（0-1，默认5%） */
+  critChance = 0.05
+  /** 暴击伤害倍率（默认150%） */
+  critDamageMult = 1.5
 
   /** 射击冷却时间（秒） */
   private fireCooldown = 0
